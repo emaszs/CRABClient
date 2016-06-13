@@ -15,7 +15,7 @@ from CRABClient.JobType.ScramEnvironment import ScramEnvironment
 from CRABClient.ClientUtilities import colors, BOOTSTRAP_CFGFILE, BOOTSTRAP_CFGFILE_PKL
 from CRABClient.ClientExceptions import EnvironmentException, InputFileNotFoundException, CachefileNotFoundException
 
-from ServerUtilities import USER_SANDBOX_EXCLUSIONS, BOOTSTRAP_CFGFILE_DUMP
+from ServerUtilities import USER_SANDBOX_EXCLUSIONS, NEW_USER_SANDBOX_EXCLUSIONS, BOOTSTRAP_CFGFILE_DUMP
 
 
 class UserTarball(object):
@@ -134,7 +134,7 @@ class UserTarball(object):
         archiveName = self.tarfile.name
         self.logger.debug("Uploading archive %s to the CRAB cache. Using URI %s" % (archiveName, filecacheurl))
         ufc = CRABClient.Emulator.getEmulator('ufc')({'endpoint' : filecacheurl, "pycurl": True})
-        result = ufc.upload(archiveName, excludeList = USER_SANDBOX_EXCLUSIONS)
+        result = ufc.upload(archiveName, excludeList = NEW_USER_SANDBOX_EXCLUSIONS)
         if 'hashkey' not in result:
             self.logger.error("Failed to upload source files: %s" % str(result))
             raise CachefileNotFoundException
