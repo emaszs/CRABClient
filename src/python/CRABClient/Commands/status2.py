@@ -131,7 +131,8 @@ class status2(SubCommand):
         cpu_max = 0
         cpu_sum = 0
         wall_sum = 0
-        for jobid in dictresult.keys():
+        # Iterate over the dictionary in jobId order
+        for jobid in sorted(dictresult.keys(), key=int):
             info = dictresult[str(jobid)]
             state = info['State']
             site = ''
