@@ -61,8 +61,15 @@ class status2(SubCommand):
 
         self.printTaskInfo(DBInfo, user)
         self.printShort(self.jobLogNodeStateSummary)
+        self.printErrors(self.jobLogNodeStateSummary)
         if self.options.long:
             self.printLong(self.jobLogNodeStateSummary)
+        if self.options.summary:
+           self.printSummary(self.jobLogNodeStateSummary) 
+        if self.options.long or self.options.sort:
+            sortdict = self.printLong(self.jobNodeStateSummary, quiet = (not self.options.long))
+            if self.options.sort:
+                self.printSort(sortdict, self.options.sort)
 
     def printTaskInfo(self, dictresult, username):
         """ Print general information like project directory, task name, scheduler, task status (in the database),
@@ -278,6 +285,196 @@ class status2(SubCommand):
                 self.logger.info("\n{0} status:\t\t\t{1} {2}".format(jobtype, self._printState(state_list[0], 13), self._percentageString(state_list[0], states[state_list[0]], total)))
                 for status in state_list[1:]:
                     self.logger.info("\t\t\t\t{0} {1}".format(self._printState(status, 13), self._percentageString(status, states[status], total)))
+
+    def printErrors(self, dictresult):
+        """ Iterate over dictresult['jobs'] if present, which is a dictionary like:
+                {'10': {'State': 'running'}, '1': {'State': 'failed', 'Error' : [10,'error message']}, '3': {'State': 'failed', 'Error' : [10,'error message']} ...
+            and group the errors per exit code counting how many jobs exited with a certain exit code, and print the summary
+        """
+        ## In general, there are N_{ec}_{em} jobs that failed with exit code ec and
+        ## error message em.
+        ## Since there may be different error messages for a given exit code, we use a
+        ## map containing the exit code as key and as value a list with the different
+        ## exit messages. For example:
+        ## ec_errors = { '1040' : ["Failed due to bla", "Failed due to blabla"],
+        ##              '60302' : ["File X does not exist", "File Y does not exist"]
+        ##             }
+        ec_errors = {}
+        ## We also want a map containing again the exit code as key, but as value a list
+        ## with the lists of job ids that failed with given exit code and error message.
+        ## For example:
+        ## ec_jobids = { '1040' : [[1, 2, 3, 4, 5], [10, 12, 14]],
+        ##              '60302' : [[6, 7, 8, 9, 10], [11, 13, 15]]
+        ##             }
+        ## where jobs [1, 2, 3, 4, 5] failed with error message "Failed due to bla",
+        ## jobs [10, 12, 14] with "Failed due to blabla", jobs [6, 7, 8, 9, 10] with
+        ## "File X does not exist" and jobs [11, 13, 15] with "File Y does not exist".
+        ec_jobids = {}
+        ## We also want a map containing again the exit code as key, but as value a list
+        ## with the numbers N_{ec}_{em}. For example:
+        ## ec_numjobs = { '1040' : [N_{1040}_{"Failed due to bla"}, N_{1040}_{"Failed due to blabla"}],
+        ##               '60302' : [N_{60302}_{"File X does not exist"}, N_{60302}_{"File Y does not exist"}]
+        ##              }
+        ## Actually, for later convenience when sorting by most frequent error messages
+        ## for each exit code (i.e. sorting by N_{ec}_{em}), we add a second number
+        ## representing the position of the error message em in the corresponding list
+        ## in ec_errors[ec]. For example:
+        ## ec_numjobs = { '1040' : [(N_{1040}_{"Failed due to bla"}, 1), (N_{1040}_{"Failed due to blabla"}, 2)],
+        ##               '60302' : [(N_{60302}_{"File X does not exist"}, 1), (N_{60302}_{"File Y does not exist"}, 2)]
+        ##              }
+        ## We will later sort ec_numjobs[ec], which sorts according to the first number
+        ## in the 2-tuples. So the sorted ec_numjobs dictionary could be for example:
+        ## ec_numjobs = { '1040' : [(N_{1040}_{"Failed due to bla"}, 1), (N_{1040}_{"Failed due to blabla"}, 2)],
+        ##               '60302' : [(N_{60302}_{"File Y does not exist"}, 2), (N_{60302}_{"File X does not exist"}, 1)]
+        ##              }
+        ## The second number in the 2-tuples allows to get the error message from
+        ## ec_errors[ec]: given the sorted ec_numjobs dictionary, for each exit code
+        ## (i.e. for each key) ec in the dictionary, the most frequent error messages
+        ## are ec_errors[ec][ec_numjobs[ec][0][1]], ec_errors[ec][ec_numjobs[ec][1][1]], etc.
+        ec_numjobs = {}
+        unknown = 0
+        are_failed_jobs = False
+        for jobid, status in dictresult.iteritems():
+            if status['State'] == 'failed':
+                are_failed_jobs = True
+                if 'Error' in status:
+                    ec = status['Error'][0] #exit code of this failed job
+                    em = status['Error'][1] #exit message of this failed job
+                    if ec not in ec_errors:
+                        ec_errors[ec] = []
+                    if ec not in ec_jobids:
+                        ec_jobids[ec] = []
+                    if ec not in ec_numjobs:
+                        ec_numjobs[ec] = []
+                    if em not in ec_errors[ec]:
+                        ec_numjobs[ec].append((1, len(ec_errors[ec])))
+                        ec_errors[ec].append(em)
+                        ec_jobids[ec].append([jobid])
+                    else:
+                        i = ec_errors[ec].index(em)
+                        ec_jobids[ec][i].append(jobid)
+                        ec_numjobs[ec][i] = (ec_numjobs[ec][i][0] + 1, ec_numjobs[ec][i][1])
+                else:
+                    unknown += 1
+        if are_failed_jobs:
+            ## If option --sort=exitcodes was specified, show the error summary with the
+            ## exit codes sorted. Otherwise show it sorted from most frequent exit code to
+            ## less frequent.
+            exitCodes = []
+            if self.options.sort == "exitcode":
+                for ec in ec_numjobs.keys():
+                    if ec not in exitCodes:
+                        exitCodes.append(ec)
+                exitCodes.sort()
+            else:
+                numjobsec = []
+                for ec, numjobs in ec_numjobs.iteritems():
+                    count = 0
+                    for nj, _ in numjobs:
+                        count += nj
+                    numjobsec.append((count, ec))
+                numjobsec.sort()
+                numjobsec.reverse()
+                for _, ec in numjobsec:
+                    if ec not in exitCodes:
+                        exitCodes.append(ec)
+            ## Sort the job ids in ec_jobids. Remember that ec_jobids[ec] is a list of lists
+            ## of job ids, and that each job id is a string.
+            for ec in ec_jobids.keys():
+                for i in range(len(ec_jobids[ec])):
+                    ec_jobids[ec][i] = [str(y) for y in sorted([int(x) for x in ec_jobids[ec][i]])]
+            ## Error summary header.
+            msg = "\nError Summary:"
+            if not self.options.verboseErrors:
+                msg += " (use crab status --verboseErrors for details about the errors)"
+            ## Auxiliary variable for the layout of the error summary messages.
+            totnumjobs = len(dictresult)
+            ndigits = int(math.ceil(math.log(totnumjobs+1, 10)))
+            ## For each exit code:
+            for i, ec in enumerate(exitCodes):
+                ## Sort the error messages for this exit code from most frequent one to less
+                ## frequent one.
+                numjobs = sorted(ec_numjobs[ec])
+                numjobs.reverse()
+                ## Count the total number of failed jobs with this exit code.
+                count = 0
+                for nj, _ in numjobs:
+                    count += nj
+                ## Exit code 90000 means failure in postprocessing stage.
+                if ec == 90000:
+                    msg += ("\n\n%" + str(ndigits) + "s jobs failed in postprocessing step%s") \
+                         % (count, ":" if self.options.verboseErrors else "")
+                else:
+                    msg += ("\n\n%" + str(ndigits) + "s jobs failed with exit code %s%s") \
+                         % (count, ec, ":" if self.options.verboseErrors else "")
+                if self.options.verboseErrors:
+                    ## Costumize the message depending on whether there is only one error message or
+                    ## more than one.
+                    if len(ec_errors[ec]) == 1:
+                        error_msg = ec_errors[ec][0]
+                        msg += ("\n\n\t%" + str(ndigits) + "s jobs failed with following error message:") % (nj)
+                        msg += " (for example, job %s)" % (ec_jobids[ec][0][0])
+                        msg += "\n\n\t\t" + "\n\t\t".join([line for line in error_msg.split('\n') if line])
+                    else:
+                        ## Show up to three different error messages.
+                        remainder = count
+                        if len(ec_errors[ec]) > 3:
+                            msg += "\n\t(Showing only the 3 most frequent errors messages for this exit code)"
+                        for nj, i in numjobs[:3]:
+                            error_msg = ec_errors[ec][i]
+                            msg += ("\n\n\t%" + str(ndigits) + "s jobs failed with following error message:") % (nj)
+                            msg += " (for example, job %s)" % (ec_jobids[ec][i][0])
+                            msg += "\n\n\t\t" + "\n\t\t".join([line for line in error_msg.split('\n') if line])
+                            remainder -= nj
+                        if remainder > 0:
+                            msg += "\n\n\tFor the error messages of the other %s jobs," % (remainder)
+                            msg += " please have a look at the dashboard task monitoring web page."
+            if unknown:
+                msg += "\n\nCould not find exit code details for %s jobs." % (unknown)
+            msg += "\n\nHave a look at https://twiki.cern.ch/twiki/bin/viewauth/CMSPublic/JobExitCodes for a description of the exit codes."
+            self.logger.info(msg)
+
+    def printSummary(self, dictresult):
+
+        sites = {}
+        default_info = {"Runtime": 0, "Waste": 0, "Running": 0, "Success": 0, "Failed": 0, "Stageout": 0}
+        for i in range(1, len(dictresult)+1):
+            info = dictresult[str(i)]
+            state = info['State']
+            site_history = info.get("SiteHistory")
+            if not site_history:
+                continue
+            walls = info['WallDurations']
+            cur_site = info['SiteHistory'][-1]
+            cur_info = sites.setdefault(cur_site, dict(default_info))
+            for site, wall in zip(site_history[:-1], walls[:-1]):
+                info = sites.setdefault(site, dict(default_info))
+                info['Failed'] += 1
+                info['Waste'] += wall
+            if state in ['failed', 'cooloff', 'held', 'killed'] or (state == 'idle' and cur_site != 'Unknown'):
+                cur_info['Failed'] += 1
+                cur_info['Waste'] += walls[-1]
+            elif state == 'transferring':
+                cur_info['Stageout'] += 1
+                cur_info['Runtime'] += walls[-1]
+            elif state == 'running':
+                cur_info['Running'] += 1
+                cur_info['Runtime'] += walls[-1]
+            elif state == 'finished':
+                cur_info['Success'] += 1
+                cur_info['Runtime'] += walls[-1]
+
+        self.logger.info("\nSite Summary Table (including retries):\n")
+        self.logger.info("%-20s %10s %10s %10s %10s %10s %10s" % ("Site", "Runtime", "Waste", "Running", "Successful", "Stageout", "Failed"))
+
+        sorted_sites = sorted(sites.keys())
+        for site in sorted_sites:
+            info = sites[site]
+            if site == 'Unknown': continue
+            self.logger.info("%-20s %10s %10s %10s %10s %10s %10s" % (site, to_hms(info['Runtime']), to_hms(info['Waste']), str(info['Running']), str(info['Success']), str(info['Stageout']), str(info['Failed'])))
+
+        self.logger.info("")
+
 
     def _percentageString(self, state, value, total):
         state = PUBLICATION_STATES.get(state, state)
