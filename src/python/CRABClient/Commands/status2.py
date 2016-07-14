@@ -62,12 +62,10 @@ class status2(SubCommand):
         self.printTaskInfo(DBInfo, user)
         self.printShort(self.jobLogNodeStateSummary)
         self.printErrors(self.jobLogNodeStateSummary)
-        if self.options.long:
-            self.printLong(self.jobLogNodeStateSummary)
         if self.options.summary:
            self.printSummary(self.jobLogNodeStateSummary) 
         if self.options.long or self.options.sort:
-            sortdict = self.printLong(self.jobNodeStateSummary, quiet = (not self.options.long))
+            sortdict = self.printLong(self.jobLogNodeStateSummary, quiet = (not self.options.long))
             if self.options.sort:
                 self.printSort(sortdict, self.options.sort)
 
