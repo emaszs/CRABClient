@@ -6,6 +6,7 @@ import urllib
 from CRABClient import __version__
 import math
 import ast
+import json
 
 from CRABClient.UserUtilities import getFileFromURL
 from CRABClient.Commands.SubCommand import SubCommand
@@ -68,6 +69,8 @@ class status2(SubCommand):
             sortdict = self.printLong(self.jobLogNodeStateSummary, quiet = (not self.options.long))
             if self.options.sort:
                 self.printSort(sortdict, self.options.sort)
+        if self.options.json:
+            self.logger.info(json.dumps(self.jobLogNodeStateSummary))
 
     def printTaskInfo(self, dictresult, username):
         """ Print general information like project directory, task name, scheduler, task status (in the database),
