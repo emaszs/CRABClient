@@ -473,6 +473,82 @@ class status2(SubCommand):
 
         self.logger.info("")
 
+    def printSort(self, sortdict, sortby):
+        sortmatrix = []
+        valuedict = {}
+        self.logger.info('')
+        for jobid in sortdict:
+            if sortby in ['exitcode']:
+                if sortdict[jobid][sortby] != 'Unknown':
+                    value = int(sortdict[jobid][sortby])
+                else:
+                    value = 999999
+                if value not in sortmatrix:
+                    sortmatrix.append(value)
+                sortmatrix.sort()
+                if value not in valuedict:
+                    valuedict[value] = [jobid]
+                else:
+                    valuedict[value].append(jobid)
+            elif sortby in ['state' , 'site']:
+                value = sortdict[jobid][sortby]
+                if value not in valuedict:
+                    valuedict[value] = [jobid]
+                else:
+                    valuedict[value].append(jobid)
+            elif sortby in ['memory', 'cpu', 'retries']:
+                if sortdict[jobid][sortby] != 'Unknown':
+                    value = int(sortdict[jobid][sortby])
+                else:
+                    value = 999999
+                sortmatrix.append((value, jobid))
+                sortmatrix.sort()
+            elif sortby in ['runtime', 'waste']:
+                value = sortdict[jobid][sortby]
+                realvaluematrix = value.split(':')
+                realvalue = 3600*int(realvaluematrix[0]) + 60*int(realvaluematrix[1]) + int(realvaluematrix[2])
+                sortmatrix.append((realvalue, value, jobid))
+                sortmatrix.sort()
+        if sortby in ['exitcode']:
+            msg  = "Jobs sorted by exit code:\n"
+            msg += "\n%-20s %-20s\n" % ('Exit Code', 'Job Id(s)')
+            for value in sortmatrix:
+                if value == 999999:
+                    esignvalue = 'Unknown'
+                else:
+                    esignvalue = str(value)
+                jobids = [str(jobid) for jobid in sorted([int(jobid) for jobid in valuedict[value]])]
+                msg += "\n%-20s %-s" % (esignvalue, ", ".join(jobids))
+            self.logger.info(msg)
+        elif sortby in ['state' , 'site']:
+            msg  = "Jobs sorted by %s:\n" % (sortby)
+            msg += "\n%-20s %-20s\n" % (sortby.title(), 'Job Id(s)')
+            for value in valuedict:
+                msg += "\n%-20s %-s" % (value, ", ".join(valuedict[value]))
+            self.logger.info(msg)
+        elif sortby in ['memory', 'cpu', 'retries']:
+            msg = "Jobs sorted by %s used:\n" % (sortby)
+            if sortby == 'memory':
+                msg += "%-10s %-10s" % ("Memory (MB)".center(10), "Job Id".center(10))
+            elif sortby == 'cpu':
+                msg += "%-10s %-10s" % ("CPU".center(10), "Job Id".center(10))
+            elif sortby == 'retries':
+                msg += "%-10s %-10s" % ("Retries".center(10), "Job Id".center(10))
+            for value in sortmatrix:
+                if value[0] == 999999:
+                    esignvalue = 'Unknown'
+                else:
+                    esignvalue = value[0]
+                msg += "%10s %10s" % (str(esignvalue).center(10), value[1].center(10))
+            self.logger.info(msg)
+        elif sortby in ['runtime' ,'waste']:
+            msg  = "Jobs sorted by %s used:\n" % (sortby)
+            msg += "%-10s %-5s\n" % (sortby.title(), "Job Id")
+            for value in sortmatrix:
+                msg += "%-10s %-5s" % (value[1], value[2].center(5))
+            self.logger.info(msg)
+
+        self.logger.info('')
 
     def _percentageString(self, state, value, total):
         state = PUBLICATION_STATES.get(state, state)
