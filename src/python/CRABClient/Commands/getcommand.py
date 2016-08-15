@@ -3,12 +3,20 @@ from CRABClient.Commands.SubCommand import SubCommand
 from CRABClient.ClientExceptions import ConfigurationException , RESTCommunicationException
 from CRABClient.ClientUtilities import validateJobids, colors
 from CRABClient import __version__
+
+from WMCore.Services.PhEDEx.PhEDEx import PhEDEx
+
 import CRABClient.Emulator
+import ServerUtilities
 
 import os
 import re
 import copy
 import urllib
+
+
+PANDAID, OUTDS, ACQERA, SWVER, INEVENTS, GLOBALTAG, PUBLISHNAME, LOCATION, TMPLOCATION, RUNLUMI, ADLER32, CKSUM, MD5, LFN, SIZE, PARENTS, STATE,\
+CREATIONTIME, TMPLFN, TYPE, DIRECTSTAGEOUT = range(21)
 
 class getcommand(SubCommand):
     """
@@ -25,31 +33,34 @@ class getcommand(SubCommand):
         if argv.get('subresource') == 'logs':
             taskdbparam = 'tm_save_logs'
             configparam = "General.transferLogs"
-        elif argv.get('subresource') == 'data':
+        elif argv.get('subresource') == 'data2':
             taskdbparam = 'tm_transfer_outputs'
             configparam = "General.transferOutputs"
+
 
         transferFlag = 'unknown'
         inputlist = {'subresource': 'search', 'workflow': self.cachedinfo['RequestName']}
         serverFactory = CRABClient.Emulator.getEmulator('rest')
         server = serverFactory(self.serverurl, self.proxyfilename, self.proxyfilename, version=__version__)
         uri = self.getUrl(self.instance, resource = 'task')
-        dictresult, status, reason =  server.get(uri, data = inputlist)
+        dictresult, status, _ =  server.get(uri, data = inputlist)
         self.logger.debug('Server result: %s' % dictresult)
         if status == 200:
             if 'desc' in dictresult and 'columns' in dictresult['desc']:
-                position = dictresult['desc']['columns'].index(taskdbparam)    
+                position = dictresult['desc']['columns'].index(taskdbparam)
                 transferFlag = dictresult['result'][position] #= 'T' or 'F'
             else:
                 self.logger.debug("Unable to locate %s in server result." % (taskdbparam))
         ## If transferFlag = False, there is nothing to retrieve.
         if transferFlag == 'F':
-            msg = "No files to retrieve. Files not transferred to storage since task configuration parameter %s is False." % (configparam) 
+            msg = "No files to retrieve. Files not transferred to storage since task configuration parameter %s is False." % (configparam)
             self.logger.info(msg)
             return {'success': {}, 'failed': {}}
 
+
+
         ## Retrieve tm_edm_outfiles, tm_tfile_outfiles and tm_outfiles from the task database and check if they are empty.
-        if argv.get('subresource') == 'data' and status == 200:
+        if argv.get('subresource') == 'data2' and status == 200:
             if 'desc' in dictresult and 'columns' in dictresult['desc']:
                 position = dictresult['desc']['columns'].index('tm_edm_outfiles')
                 tm_edm_outfiles = dictresult['result'][position]
@@ -67,6 +78,7 @@ class getcommand(SubCommand):
         self.logger.debug('Retrieving locations for task %s' % self.cachedinfo['RequestName'])
         inputlist =  [('workflow', self.cachedinfo['RequestName'])]
         inputlist.extend(list(argv.iteritems()))
+#         inputlist.append(('subresource', 'data'))
         if getattr(self.options, 'quantity', None):
             self.logger.debug('Retrieving %s file locations' % self.options.quantity)
             inputlist.append(('limit', self.options.quantity))
@@ -77,16 +89,31 @@ class getcommand(SubCommand):
             self.logger.debug('Retrieving jobs %s' % self.options.jobids)
             inputlist.extend(self.options.jobids)
         serverFactory = CRABClient.Emulator.getEmulator('rest')
+        
+        
         server = serverFactory(self.serverurl, self.proxyfilename, self.proxyfilename, version=__version__)
+        self.logger.debug(self.uri)
+        self.logger.debug(inputlist)
         dictresult, status, reason = server.get(self.uri, data = urllib.urlencode(inputlist))
         self.logger.debug('Server result: %s' % dictresult)
+
 
         if status != 200:
             msg = "Problem retrieving information from the server:\ninput:%s\noutput:%s\nreason:%s" % (str(inputlist), str(dictresult), str(reason))
             raise RESTCommunicationException(msg)
-
         totalfiles = len(dictresult['result'])
         workflow = dictresult['result']
+
+        phedex = PhEDEx({'cert': self.proxyfilename, 'key': self.proxyfilename, 'logger': self.logger, 'pycurl': True})
+
+        if len(workflow) > 0:
+            for file in workflow:
+                site = file['site']
+                lfn = file['lfn'] 
+                pfn = phedex.getPFN(site, lfn)[(site, lfn)]
+                file['pfn'] = pfn
+
+
         if len(workflow) > 0:
             if self.options.dump or self.options.xroot:
                 self.logger.debug("Getting url info")
