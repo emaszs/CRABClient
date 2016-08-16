@@ -3,6 +3,7 @@ from CRABClient.Commands.SubCommand import SubCommand
 from CRABClient.ClientExceptions import ConfigurationException , RESTCommunicationException
 from CRABClient.ClientUtilities import validateJobids, colors
 from CRABClient import __version__
+from CRABClient.ClientUtilities import initLoggers
 
 from WMCore.Services.PhEDEx.PhEDEx import PhEDEx
 
@@ -106,12 +107,19 @@ class getcommand(SubCommand):
 
         phedex = PhEDEx({'cert': self.proxyfilename, 'key': self.proxyfilename, 'logger': self.logger, 'pycurl': True})
 
+        transferringIds, _ = self.getPossibleToRetrieveFiles()
+
+        # Pick out the correct lfn/site locations
         if len(workflow) > 0:
-            for file in workflow:
-                site = file['site']
-                lfn = file['lfn'] 
+            for fileInfo in workflow:
+                if str(fileInfo['jobid']) in transferringIds:
+                    lfn = fileInfo['tmplfn']
+                    site = fileInfo['tmpsite']
+                else:
+                    lfn = fileInfo['lfn']
+                    site = fileInfo['site']
                 pfn = phedex.getPFN(site, lfn)[(site, lfn)]
-                file['pfn'] = pfn
+                fileInfo['pfn'] = pfn
 
 
         if len(workflow) > 0:
@@ -161,6 +169,19 @@ class getcommand(SubCommand):
 
         return returndict
 
+
+    def getPossibleToRetrieveFiles(self):
+        mod = __import__('CRABClient.Commands.status2', fromlist='status2')
+
+        _, logger, _ = initLoggers()
+        cmdobj = getattr(mod, 'status2')(logger)
+        _, jobList = cmdobj.__call__()
+        jobList = jobList['jobList']
+
+        transferringIds = [x[1] for x in jobList if x[0] in ['transferring', 'cooloff', 'held']]
+        finishedIds = [x[1] for x in jobList if x[0] in ['finished', 'failed', 'transferred']]
+
+        return transferringIds, finishedIds
 
     def setDestination(self):
         #Setting default destination if -o is not provided
