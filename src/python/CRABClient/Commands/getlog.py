@@ -6,6 +6,7 @@ from CRABClient.Commands.getcommand import getcommand
 from CRABClient.ClientExceptions import RESTCommunicationException, ClientException, MissingOptionException
 
 from ServerUtilities import getProxiedWebDir
+from CRABClient.ClientExceptions import ConfigurationException
 
 
 class getlog(getcommand):
@@ -19,8 +20,6 @@ class getlog(getcommand):
     visible = True #overwrite getcommand
 
     def __call__(self):
-        import pdb
-        pdb.set_trace()
         if self.options.short:
             taskname = self.cachedinfo['RequestName']
             inputlist = {'subresource': 'webdir', 'workflow': taskname}
@@ -45,14 +44,13 @@ class getlog(getcommand):
                 self.logger.info("%sSuccess%s: All files successfully retrieved." % (colors.GREEN,colors.NORMAL))
             returndict = {'success': success, 'failed': failed}
         else:
-            returndict = getcommand.__call__(self, subresource = 'logs')
+            returndict = getcommand.__call__(self, subresource = 'logs2')
             if ('success' in returndict and not returndict['success']) or \
                ('failed'  in returndict and returndict['failed']):
                 msg = "You can use the --short option to retrieve a short version of the log files from the Grid scheduler."
                 self.logger.info(msg)
 
         return returndict
-
 
     def setOptions(self):
         """

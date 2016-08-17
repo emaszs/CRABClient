@@ -14,22 +14,17 @@ class getoutput(getcommand):
     visible = True #overwrite getcommand
 
     def __call__(self, **argv):
-        transferringIds, finishedIds = self.getPossibleToRetrieveFiles()
-        possibleJobIds = transferringIds + finishedIds
         
-        if not self.options.jobids:
-            self.options.jobids = []
-
         ## Check that the jobids passed by the user are in a valid state to retrieve files.
-        if self.options.jobids:
-            for jobid in self.options.jobids:
-                if not str(jobid[1]) in possibleJobIds:
-                    raise ConfigurationException("The job with id %s is not in a valid state to retrieve output files" % jobid[1])
-        else:
-            ## If the user does not give us jobids, set them to all possible ids.
-            self.options.jobids = []
-            for jobid in possibleJobIds:
-                self.options.jobids.extend([('jobids', jobid)])
+#         if self.options.jobids:
+#             for jobid in self.options.jobids:
+#                 if not str(jobid[1]) in self.possibleJobIds:
+#                     raise ConfigurationException("The job with id %s is not in a valid state to retrieve output files" % jobid[1])
+#         else:
+#             ## If the user does not give us jobids, set them to all possible ids.
+#             self.options.jobids = []
+#             for jobid in self.possibleJobIds:
+#                 self.options.jobids.extend([('jobids', jobid)])
 
         # TODO: process the quantity parameter
 #         else:

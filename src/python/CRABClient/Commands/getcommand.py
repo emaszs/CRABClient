@@ -8,7 +8,6 @@ from CRABClient.ClientUtilities import initLoggers
 from WMCore.Services.PhEDEx.PhEDEx import PhEDEx
 
 import CRABClient.Emulator
-import ServerUtilities
 
 import os
 import re
@@ -16,8 +15,6 @@ import copy
 import urllib
 
 
-PANDAID, OUTDS, ACQERA, SWVER, INEVENTS, GLOBALTAG, PUBLISHNAME, LOCATION, TMPLOCATION, RUNLUMI, ADLER32, CKSUM, MD5, LFN, SIZE, PARENTS, STATE,\
-CREATIONTIME, TMPLFN, TYPE, DIRECTSTAGEOUT = range(21)
 
 class getcommand(SubCommand):
     """
@@ -27,17 +24,17 @@ class getcommand(SubCommand):
 
     visible = False
 
-
     def __call__(self, **argv):
+        self.processAndStoreJobIds()
+
         ## Retrieve the transferLogs parameter from the task database.
         taskdbparam, configparam = '', ''
-        if argv.get('subresource') == 'logs':
+        if argv.get('subresource') == 'logs2':
             taskdbparam = 'tm_save_logs'
             configparam = "General.transferLogs"
         elif argv.get('subresource') == 'data2':
             taskdbparam = 'tm_transfer_outputs'
             configparam = "General.transferOutputs"
-
 
         transferFlag = 'unknown'
         inputlist = {'subresource': 'search', 'workflow': self.cachedinfo['RequestName']}
@@ -107,12 +104,10 @@ class getcommand(SubCommand):
 
         phedex = PhEDEx({'cert': self.proxyfilename, 'key': self.proxyfilename, 'logger': self.logger, 'pycurl': True})
 
-        transferringIds, _ = self.getPossibleToRetrieveFiles()
-
         # Pick out the correct lfn/site locations
         if len(workflow) > 0:
             for fileInfo in workflow:
-                if str(fileInfo['jobid']) in transferringIds:
+                if str(fileInfo['jobid']) in self.transferringIds:
                     lfn = fileInfo['tmplfn']
                     site = fileInfo['tmpsite']
                 else:
@@ -120,7 +115,6 @@ class getcommand(SubCommand):
                     site = fileInfo['site']
                 pfn = phedex.getPFN(site, lfn)[(site, lfn)]
                 fileInfo['pfn'] = pfn
-
 
         if len(workflow) > 0:
             if self.options.dump or self.options.xroot:
@@ -169,8 +163,8 @@ class getcommand(SubCommand):
 
         return returndict
 
-
-    def getPossibleToRetrieveFiles(self):
+    def processAndStoreJobIds(self):
+        ## Check that the jobids passed by the user are in a valid state to retrieve files.
         mod = __import__('CRABClient.Commands.status2', fromlist='status2')
 
         _, logger, _ = initLoggers()
@@ -180,8 +174,19 @@ class getcommand(SubCommand):
 
         transferringIds = [x[1] for x in jobList if x[0] in ['transferring', 'cooloff', 'held']]
         finishedIds = [x[1] for x in jobList if x[0] in ['finished', 'failed', 'transferred']]
+        possibleJobIds = transferringIds + finishedIds
 
-        return transferringIds, finishedIds
+        if self.options.jobids:
+            for jobid in self.options.jobids:
+                if not str(jobid[1]) in possibleJobIds:
+                    raise ConfigurationException("The job with id %s is not in a valid state to retrieve output files" % jobid[1])
+        else:
+            ## If the user does not give us jobids, set them to all possible ids.
+            self.options.jobids = []
+            for jobid in possibleJobIds:
+                self.options.jobids.extend([('jobids', jobid)])
+
+        self.transferringIds = transferringIds
 
     def setDestination(self):
         #Setting default destination if -o is not provided
