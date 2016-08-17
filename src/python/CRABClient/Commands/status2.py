@@ -29,9 +29,6 @@ class status2(SubCommand):
 
     shortnames = ['st2']
 
-    
-    def testing(self):
-        return self.__call__()
 
     def getColumn(self, dictresult, columnName):
         columnIndex = dictresult['desc']['columns'].index(columnName)

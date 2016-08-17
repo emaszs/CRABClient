@@ -76,7 +76,6 @@ class getcommand(SubCommand):
         self.logger.debug('Retrieving locations for task %s' % self.cachedinfo['RequestName'])
         inputlist =  [('workflow', self.cachedinfo['RequestName'])]
         inputlist.extend(list(argv.iteritems()))
-#         inputlist.append(('subresource', 'data'))
         if getattr(self.options, 'quantity', None):
             self.logger.debug('Retrieving %s file locations' % self.options.quantity)
             inputlist.append(('limit', self.options.quantity))
@@ -87,14 +86,9 @@ class getcommand(SubCommand):
             self.logger.debug('Retrieving jobs %s' % self.options.jobids)
             inputlist.extend(self.options.jobids)
         serverFactory = CRABClient.Emulator.getEmulator('rest')
-        
-        
         server = serverFactory(self.serverurl, self.proxyfilename, self.proxyfilename, version=__version__)
-        self.logger.debug(self.uri)
-        self.logger.debug(inputlist)
         dictresult, status, reason = server.get(self.uri, data = urllib.urlencode(inputlist))
         self.logger.debug('Server result: %s' % dictresult)
-
 
         if status != 200:
             msg = "Problem retrieving information from the server:\ninput:%s\noutput:%s\nreason:%s" % (str(inputlist), str(dictresult), str(reason))
@@ -104,7 +98,7 @@ class getcommand(SubCommand):
 
         phedex = PhEDEx({'cert': self.proxyfilename, 'key': self.proxyfilename, 'logger': self.logger, 'pycurl': True})
 
-        # Pick out the correct lfn/site locations
+        # Pick out the correct lfns and sites
         if len(workflow) > 0:
             for fileInfo in workflow:
                 if str(fileInfo['jobid']) in self.transferringIds:
@@ -164,7 +158,13 @@ class getcommand(SubCommand):
         return returndict
 
     def processAndStoreJobIds(self):
-        ## Check that the jobids passed by the user are in a valid state to retrieve files.
+        """
+        Call the status command to check that the jobids passed by the user are in a valid
+        state to retrieve files. Otherwise, if no jobids are passed by the user, populate the
+        list with all possible jobids.
+
+        Also store some information which used later when on deciding the correct pfn.
+        """
         mod = __import__('CRABClient.Commands.status2', fromlist='status2')
 
         _, logger, _ = initLoggers()
