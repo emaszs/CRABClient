@@ -45,6 +45,14 @@ class UserTarball(object):
         if getattr(self.config.JobType, 'sendPythonFolder', configParametersInfo['JobType.sendPythonFolder']['default']):
             directories.append('python')
             directories.append('cfipython')
+        if getattr(self.config.JobType, 'sendExternalFolder', configParametersInfo['JobType.sendExternalFolder']['default']):
+            externalDirPath = os.path.join(self.scram.getCmsswBase(), 'external')
+            if os.path.exists(externalDirPath) and os.listdir(externalDirPath) != []:
+                directories.append('external')
+            else:
+                self.logger.info("The config.JobType.sendExternalFolder parameter is set to True but the external directory "\
+                                  "doesn't exist or is empty, not adding to tarball. Path: %s" % externalDirPath)
+
         # Note that dataDirs are only looked-for and added under the src/ folder.
         # /data/ subdirs contain data files needed by the code
         # /interface/ subdirs contain C++ header files needed e.g. by ROOT6
@@ -95,8 +103,8 @@ class UserTarball(object):
         """
         Add monitoring files the debug tarball.
         """
-        configtmp = tempfile.NamedTemporaryFile(delete=True) 
-        configtmp.write(str(self.config)) 
+        configtmp = tempfile.NamedTemporaryFile(delete=True)
+        configtmp.write(str(self.config))
         configtmp.flush()
         psetfilename = getattr(self.config.JobType, 'psetName', None)
         if not psetfilename == None:
