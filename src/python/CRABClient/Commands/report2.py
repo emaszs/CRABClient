@@ -2,43 +2,59 @@ import os
 import json
 import tempfile
 import pycurl
+import StringIO
+import tarfile
+
+import CRABClient.Emulator
+
 from ast import literal_eval
 
 from WMCore.DataStructs.LumiList import LumiList
- 
-import CRABClient.Emulator
+from WMCore.Services.DBS.DBSReader import DBSReader
+from WMCore.Services.pycurl_manager import ResponseHeader
+
 from CRABClient import __version__
 from CRABClient.ClientUtilities import colors
 from CRABClient.Commands.SubCommand import SubCommand
 from CRABClient.JobType.BasicJobType import BasicJobType
-from CRABClient.ClientExceptions import RESTCommunicationException, ConfigurationException, UnknownOptionException
-from WMCore.Services.DBS.DBSReader import DBSReader
-import StringIO
-from WMCore.Services.pycurl_manager import ResponseHeader
-import tarfile
+from CRABClient.ClientExceptions import RESTCommunicationException, ConfigurationException, \
+    UnknownOptionException, ClientException
+from CRABClient.UserUtilities import setConsoleLogLevel, getConsoleLogLevel
+from CRABClient.ClientUtilities import LOGLEVEL_MUTE
+
 from ServerUtilities import FEEDBACKMAIL
 
 
 
 class report2(SubCommand):
     """
+    Important: the __call__ method is almost identical to the old report.
+
     Get the list of good lumis for your task identified by the -d/--dir option.
     """
     name = 'report2'
     shortnames = ['rep2']
 
-    #TODO move to server utils
     def getColumn(self, dictresult, columnName):
         columnIndex = dictresult['desc']['columns'].index(columnName)
         value = dictresult['result'][columnIndex]
-        return value
+        if value == 'None':
+            return None
+        else:
+            return value
 
     def __init__(self, logger, cmdargs=None):
         SubCommand.__init__(self, logger, cmdargs)
 
-
     def __call__(self):
         reportData = self.collectReportData()
+
+        if not reportData:
+            msg  = "%sError%s:" % (colors.RED, colors.NORMAL)
+            msg += " Status information is unavailable, will not proceed with the report."
+            msg += " Try again a few minutes later if the task has just been submitted."
+            self.logger.info(msg)
+            return None
 
         returndict = {}
         if self.options.recovery == 'notPublished' and not reportData['publication']:
@@ -60,7 +76,7 @@ class report2(SubCommand):
 
         def _getNumFiles(jobs, fileType):
             files = set()
-            for dummy_jobid, reports in jobs.iteritems():
+            for _, reports in jobs.iteritems():
                 for rep in reports:
                     if rep['type'] == fileType:
                         # the split is done to remove the jobnumber at the end of the input file lfn
@@ -69,7 +85,7 @@ class report2(SubCommand):
 
         def _getNumEvents(jobs, fileType):
             numEvents = 0
-            for dummy_jobid, reports in jobs.iteritems():
+            for _, reports in jobs.iteritems():
                 for rep in reports:
                     if rep['type'] == fileType:
                         numEvents += rep['events']
@@ -79,7 +95,7 @@ class report2(SubCommand):
         poolInOnlyRes = {}
         for jobid, reports in reportData['runsAndLumis'].iteritems():
             poolInOnlyRes[jobid] = [rep for rep in reports if rep['type'] == 'POOLIN']
-        
+
         ## Calculate how many input files have been processed.
         numFilesProcessed = _getNumFiles(reportData['runsAndLumis'], 'POOLIN')
         returndict['numFilesProcessed'] = numFilesProcessed
@@ -95,12 +111,9 @@ class report2(SubCommand):
         returndict['numEventsWritten'] = numEventsWritten
 
         ## Get the lumis in the input dataset.
-#         inputDatasetLumis = dictresult['result'][0]['inputDataset']['lumis']
-#         returndict['inputDatasetLumis'] = inputDatasetLumis
         returndict['inputDatasetLumis'] = reportData['inputDatasetLumis']
-        
+
         ## Get the lumis split across files in the input dataset.
-#         inputDatasetDuplicateLumis = dictresult['result'][0]['inputDataset']['duplicateLumis']
         returndict['inputDatasetDuplicateLumis'] = reportData['inputDatasetDuplicateLumis']
 
         ## Get the lumis that the jobs had to process. This must be a subset of input
@@ -112,17 +125,17 @@ class report2(SubCommand):
                 if run not in lumisToProcess:
                     lumisToProcess[run] = []
                 for lumiRange in lumiRanges:
-                    lumisToProcess[run].extend(range(lumiRange[0], lumiRange[1]+1))
+                    lumisToProcess[run].extend(range(int(lumiRange[0]), int(lumiRange[1])+1))
         lumisToProcess = LumiList(runsAndLumis=lumisToProcess).getCompactList()
         returndict['lumisToProcess'] = lumisToProcess
-        
+
         ## Get the lumis that have been processed.
         processedLumis = BasicJobType.mergeLumis(poolInOnlyRes)
         returndict['processedLumis'] = processedLumis
 
         ## Get the run-lumi and number of events information about the output datasets.
         outputDatasetsInfo = reportData['outputDatasetsInfo']['outputDatasets']
-        
+
 
         outputDatasetsLumis = {}
         outputDatasetsNumEvents = {}
@@ -235,9 +248,9 @@ class report2(SubCommand):
                     json.dump(outputFilesDuplicateLumis, jsonFile)
                     jsonFile.write("\n")
                     self.logger.info("  %sWarning%s: Duplicate lumis in output files written to outputFilesDuplicateLumis.json" % (colors.RED, colors.NORMAL))
+
         ## 2) Then the summary about output datasets in DBS. For this, publication must
         ##    be True and the output files must be publishable.
-
         if reportData['publication'] and reportData['outputDatasets']:
             if onlyDBSSummary:
                 self.logger.info("Will provide a short report with information found in DBS.")
@@ -274,69 +287,92 @@ class report2(SubCommand):
         return returndict
 
     def collectReportData(self):
+        """
+        Gather information from the server, status2, DBS and files in the webdir that is needed for the report.
+        """
         reportData = {}
 
         serverFactory = CRABClient.Emulator.getEmulator('rest')
         server = serverFactory(self.serverurl, self.proxyfilename, self.proxyfilename, version=__version__)
 
         self.logger.debug('Looking up report for task %s' % self.cachedinfo['RequestName'])
-        # ---
-        # Get information from the taskdb, intput/output file metadata from metadatadb, publication info from DBS
-        # ---
+
+        # Query server for information from the taskdb, intput/output file metadata from metadatadb
         dictresult, status, reason = server.get(self.uri, data = {'workflow': self.cachedinfo['RequestName'], 'subresource': 'report2'})
         if status != 200:
             msg = "Problem retrieving report:\ninput:%s\noutput:%s\nreason:%s" % (str(self.cachedinfo['RequestName']), str(dictresult), str(reason))
             raise RESTCommunicationException(msg)
-        
-        ## What each job has processed
-        ## ---------------------------
-        ## Retrieve the filemetadata of output and input files. (The filemetadata are
-        ## uploaded by the post-job after stageout has finished for all output and log
-        ## files in the job.)
-        reportData['runsAndLumis'] = dictresult['result'][0]['runsAndLumis']
-        
-#         reportData['dbInfo'] = dictresult['result'][0]['taskDBInfo']['input_dataset']
 
         self.logger.debug("Result: %s" % dictresult)
-        # --- Getting job statuses
-        mod = __import__('CRABClient.Commands.status2', fromlist='status2')
-        cmdobj = getattr(mod, 'status2')(self.logger)
-        crabDBInfo, shortResult = cmdobj.__call__()
-        # --- job statuses retrieved
+        self.logger.info("Running crab status2 first to fetch necessary information.")
+        # Get job statuses
+        crabDBInfo, shortResult = self.getMutedStatusInfo()
+
+        if not shortResult:
+            # No point in continuing if the job list is empty.
+            # Can happen when the task is very new / old and the files necessary for status2
+            # are unavailable.
+            return None
+        reportData['jobList'] = shortResult['jobList']
+
+        reportData['runsAndLumis'] = {}
+
+        # Transform status joblist (tuples of job status and job id) into a dictionary
+        jobStatusDict = {}
+        for status, jobId in reportData['jobList']:
+            jobStatusDict[jobId] = status
+
+        # Filter output/input file metadata by finished job state
+        for jobId in jobStatusDict:
+            if jobStatusDict.get(jobId) in ['finished']:
+                reportData['runsAndLumis'][jobId] = dictresult['result'][0]['runsAndLumis'][jobId]
 
         reportData['publication'] = self.getColumn(crabDBInfo, 'tm_publication')
-#         outputDatasets = dictresult['result'][0]['taskDBInfo']['outputDatasets']
         userWebDirURL = self.getColumn(crabDBInfo, 'tm_user_webdir')
         numJobs = len(shortResult['jobList'])
-        reportData['jobList'] = shortResult['jobList']
+
         reportData['lumisToProcess'] = self.getLumisToProcess(userWebDirURL, numJobs, self.cachedinfo['RequestName'])
         reportData['inputDataset'] = self.getColumn(crabDBInfo, 'tm_input_dataset')
+
         inputDatasetInfo = self.getInputDatasetLumis(reportData['inputDataset'], userWebDirURL)['inputDataset']
         reportData['inputDatasetLumis'] = inputDatasetInfo['lumis']
         reportData['inputDatasetDuplicateLumis'] = inputDatasetInfo['duplicateLumis']
-        
-        ## What has been published
-        ## -----------------------
-        ## Get the lumis and number of events in the published output datasets.
         reportData['outputDatasets'] = dictresult['result'][0]['taskDBInfo']['outputDatasets']
-
 
         if reportData['publication']:
             reportData['outputDatasetsInfo'] = self.getDBSPublicationInfo(reportData['outputDatasets'])
 
         return reportData
 
+    def getMutedStatusInfo(self):
+        """
+        Mute the status console output before calling status and change it back to normal afterwards.
+        """
+        mod = __import__('CRABClient.Commands.status2', fromlist='status2')
+        cmdobj = getattr(mod, 'status2')(self.logger)
+        loglevel = getConsoleLogLevel()
+        setConsoleLogLevel(LOGLEVEL_MUTE)
+        crabDBInfo, shortResult = cmdobj.__call__()
+        setConsoleLogLevel(loglevel)
+
+        return crabDBInfo, shortResult
+
     def compactLumis(self, datasetInfo):
         """ Help function that allow to convert from runLumis divided per file (result of listDatasetFileDetails)
             to an aggregated result.
         """
         lumilist = {}
-        for dummyFile, info in datasetInfo.iteritems():
+        for _, info in datasetInfo.iteritems():
             for run, lumis in info['Lumis'].iteritems():
                 lumilist.setdefault(str(run), []).extend(lumis)
         return lumilist
 
     def getLumisToProcess(self, userWebDirURL, numJobs, workflow):
+        """
+        What each job was requested to process
+
+        Get the lumis to process by each job in the workflow.
+        """
         res = {}
         res['lumisToProcess'] = {}
         if userWebDirURL:
@@ -374,6 +410,13 @@ class report2(SubCommand):
         return res
 
     def getInputDatasetLumis(self, inputDataset, userWebDirURL):
+        """
+        What the input dataset had in DBS when the task was submitted
+
+        Get the lumis (and the lumis split across files) in the input dataset. Files
+        containing this information were created at data discovery time and then
+        copied to the schedd.
+        """
         res = {}
         res['inputDataset'] = {'lumis': {}, 'duplicateLumis': {}}
         if inputDataset and userWebDirURL:
@@ -394,7 +437,9 @@ class report2(SubCommand):
                 else:
                     self.logger.error("Failed to retrieve input dataset lumis.")
                 ## Clean temp file and buffer.
-                fp.seek(0); fp.truncate(0); hbuf.truncate(0)
+                fp.seek(0)
+                fp.truncate(0)
+                hbuf.truncate(0)
                 ## Retrieve the lumis split across files in the input dataset.
                 url = userWebDirURL + "/input_dataset_duplicate_lumis.json"
                 curl.setopt(pycurl.URL, url)
@@ -411,6 +456,11 @@ class report2(SubCommand):
         return res
 
     def getDBSPublicationInfo(self, outputDatasets):
+        """
+        What has been published
+
+        Get the lumis and number of events in the published output datasets.
+        """
         res = {}
         res['outputDatasets'] = {}
 
@@ -422,7 +472,6 @@ class report2(SubCommand):
                                             "logger": self.logger, "pycurl" : True}) #We can only publish here with DBS3
                 outputDatasetDetails = dbs.listDatasetFileDetails(outputDataset)
             except Exception as ex:
-                raise
                 msg  = "Failed to retrieve information from DBS for output dataset %s." % (outputDataset)
                 msg += " Exception while contacting DBS: %s" % (str(ex))
                 self.logger.exception(msg)
@@ -442,18 +491,16 @@ class report2(SubCommand):
         curl.setopt(pycurl.CONNECTTIMEOUT, 30)
         curl.setopt(pycurl.FOLLOWLOCATION, 0)
         curl.setopt(pycurl.MAXREDIRS, 0)
-        #curl.setopt(pycurl.ENCODING, 'gzip, deflate')
         return curl
 
     def myPerform(self, curl, url):
         try:
             curl.perform()
         except pycurl.error as e:
-            # TODO: throw proper exception type
-            raise Exception(("Failed to contact Grid scheduler when getting URL %s. "
-                                  "This might be a temporary error, please retry later and "
-                                  "contact %s if the error persist. Error from curl: %s"
-                                  % (url, FEEDBACKMAIL, str(e))))
+            raise ClientException(("Failed to contact Grid scheduler when getting URL %s. "
+                             "This might be a temporary error, please retry later and "
+                             "contact %s if the error persist. Error from curl: %s"
+                             % (url, FEEDBACKMAIL, str(e))))
     def setOptions(self):
         """
         __setOptions__
@@ -476,7 +523,6 @@ class report2(SubCommand):
                                default = None,
                                help = "Deprecated option removed in CRAB v3.3.1603.")
 
-
     def validateOptions(self):
         """
         Check if the output file is given and set as attribute
@@ -492,4 +538,3 @@ class report2(SubCommand):
             msg  = "%sError%s:" % (colors.RED, colors.NORMAL)
             msg += " The --recovery option only accepts the following values: %s" % (recoveryMethods)
             raise ConfigurationException(msg)
-
