@@ -58,14 +58,14 @@ class resubmit2(SubCommand):
         configreq['asodb'] = self.getColumn(crabDBInfo, "tm_asodb")
         configreq['asourl'] = self.getColumn(crabDBInfo, "tm_asourl")
         configreq['username'] = self.getColumn(crabDBInfo, "tm_username")
+
         # TODO: is this the correct submission time?
-        
         strSubmissionTime = self.getColumn(crabDBInfo, "tm_start_time")
         dtSubmissionTime = datetime.strptime(strSubmissionTime, '%Y-%m-%d %H:%M:%S.%f')
         configreq['submissionTime'] = int(dtSubmissionTime.strftime("%s"))
+
         configreq['status'] = self.getColumn(crabDBInfo, "tm_task_status")
         configreq['jobList'] = jobList
-        
         self.logger.info("Sending resubmit request to the server.")
         self.logger.debug("Submitting %s " % str(configreq))
         configreq_encoded = self._encodeRequest(configreq)
