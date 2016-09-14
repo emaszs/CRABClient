@@ -11,6 +11,7 @@ from CRABClient.ClientUtilities import validateJobids, checkStatusLoop,\
 from CRABClient.ClientExceptions import ConfigurationException, RESTCommunicationException
 from CRABClient.UserUtilities import getConsoleLogLevel, setConsoleLogLevel
 
+from ServerUtilities import checkTaskLifetime, NUM_DAYS_FOR_RESUBMITDRAIN
 
 class resubmit2(SubCommand):
     """
@@ -40,7 +41,17 @@ class resubmit2(SubCommand):
             msg = "Requesting resubmission of failed jobs in task %s" % (self.cachedinfo['RequestName'])
         self.logger.debug(msg)
 
+        crabDBInfo, jobList = self.getMutedStatusInfo()
         configreq = {'workflow': self.cachedinfo['RequestName'], 'subresource': 'resubmit2'}
+        strSubmissionTime = self.getColumn(crabDBInfo, "tm_start_time")
+        dtSubmissionTime = datetime.strptime(strSubmissionTime, '%Y-%m-%d %H:%M:%S.%f')
+        intSubmissionTime = int(dtSubmissionTime.strftime("%s"))
+
+        self.logger.debug("Checking if resubmission is possible: we don't allow resubmission %s days before task expiration date", NUM_DAYS_FOR_RESUBMITDRAIN)
+        retmsg = checkTaskLifetime(intSubmissionTime)
+        if retmsg != "ok":
+            raise ConfigurationException(retmsg)
+
         for attr_name in ['jobids', 'sitewhitelist', 'siteblacklist']:
             attr_value = getattr(self, attr_name)
             ## For 'jobids', 'sitewhitelist' and 'siteblacklist', attr_value is either a list of strings or None.
@@ -51,21 +62,16 @@ class resubmit2(SubCommand):
             ## For 'maxjobruntime', 'maxmemory', 'numcores', and 'priority', attr_value is either an integer or None.
             if attr_value is not None:
                 configreq[attr_name] = attr_value
-        configreq['force'] = 1 if self.options.force else 0
-        configreq['publication'] = 1 if self.options.publication else 0
 
-        crabDBInfo, jobList = self.getMutedStatusInfo()
+        configreq['force'] = 1 if self.options.force else 0
+        configreq['publicationresubmit'] = 1 if self.options.publication else 0
         configreq['asodb'] = self.getColumn(crabDBInfo, "tm_asodb")
         configreq['asourl'] = self.getColumn(crabDBInfo, "tm_asourl")
         configreq['username'] = self.getColumn(crabDBInfo, "tm_username")
-
-        # TODO: is this the correct submission time?
-        strSubmissionTime = self.getColumn(crabDBInfo, "tm_start_time")
-        dtSubmissionTime = datetime.strptime(strSubmissionTime, '%Y-%m-%d %H:%M:%S.%f')
-        configreq['submissionTime'] = int(dtSubmissionTime.strftime("%s"))
-
+        configreq['publicationenabled'] = self.getColumn(crabDBInfo, "tm_publication")
         configreq['status'] = self.getColumn(crabDBInfo, "tm_task_status")
-        configreq['jobList'] = jobList
+        configreq['joblist'] = jobList
+
         self.logger.info("Sending resubmit request to the server.")
         self.logger.debug("Submitting %s " % str(configreq))
         configreq_encoded = self._encodeRequest(configreq)
