@@ -11,8 +11,6 @@ from CRABClient.ClientUtilities import validateJobids, checkStatusLoop,\
 from CRABClient.ClientExceptions import ConfigurationException, RESTCommunicationException
 from CRABClient.UserUtilities import getConsoleLogLevel, setConsoleLogLevel
 
-from ServerUtilities import checkTaskLifetime, NUM_DAYS_FOR_RESUBMITDRAIN
-
 class resubmit2(SubCommand):
     """
     Resubmit jobs of the task identified by the -d/--dir option.
@@ -29,48 +27,16 @@ class resubmit2(SubCommand):
 
         SubCommand.__init__(self, logger, cmdargs)
 
-
     def __call__(self):
 
         serverFactory = CRABClient.Emulator.getEmulator('rest')
         server = serverFactory(self.serverurl, self.proxyfilename, self.proxyfilename, version = __version__)
 
-        if self.jobids:
-            msg = "Requesting resubmission of jobs %s in task %s" % (self.jobids, self.cachedinfo['RequestName'])
-        else:
-            msg = "Requesting resubmission of failed jobs in task %s" % (self.cachedinfo['RequestName'])
-        self.logger.debug(msg)
-
         crabDBInfo, jobList = self.getMutedStatusInfo()
-        configreq = {'workflow': self.cachedinfo['RequestName'], 'subresource': 'resubmit2'}
-        strSubmissionTime = self.getColumn(crabDBInfo, "tm_start_time")
-        dtSubmissionTime = datetime.strptime(strSubmissionTime, '%Y-%m-%d %H:%M:%S.%f')
-        intSubmissionTime = int(dtSubmissionTime.strftime("%s"))
 
-        self.logger.debug("Checking if resubmission is possible: we don't allow resubmission %s days before task expiration date", NUM_DAYS_FOR_RESUBMITDRAIN)
-        retmsg = checkTaskLifetime(intSubmissionTime)
-        if retmsg != "ok":
-            raise ConfigurationException(retmsg)
+        self.processJobIds(jobList)
 
-        for attr_name in ['jobids', 'sitewhitelist', 'siteblacklist']:
-            attr_value = getattr(self, attr_name)
-            ## For 'jobids', 'sitewhitelist' and 'siteblacklist', attr_value is either a list of strings or None.
-            if attr_value is not None:
-                configreq[attr_name] = attr_value
-        for attr_name in ['maxjobruntime', 'maxmemory', 'numcores', 'priority']:
-            attr_value = getattr(self.options, attr_name)
-            ## For 'maxjobruntime', 'maxmemory', 'numcores', and 'priority', attr_value is either an integer or None.
-            if attr_value is not None:
-                configreq[attr_name] = attr_value
-
-        configreq['force'] = 1 if self.options.force else 0
-        configreq['publicationresubmit'] = 1 if self.options.publication else 0
-        configreq['asodb'] = self.getColumn(crabDBInfo, "tm_asodb")
-        configreq['asourl'] = self.getColumn(crabDBInfo, "tm_asourl")
-        configreq['username'] = self.getColumn(crabDBInfo, "tm_username")
-        configreq['publicationenabled'] = self.getColumn(crabDBInfo, "tm_publication")
-        configreq['status'] = self.getColumn(crabDBInfo, "tm_task_status")
-        configreq['joblist'] = jobList
+        configreq = self.getQueryParams(crabDBInfo, jobList)
 
         self.logger.info("Sending resubmit request to the server.")
         self.logger.debug("Submitting %s " % str(configreq))
@@ -100,7 +66,6 @@ class resubmit2(SubCommand):
 
         return returndict
 
-
     ## TODO: This method is shared with submit. Put it in a common place.
     def _encodeRequest(self, configreq):
         """
@@ -116,6 +81,74 @@ class resubmit2(SubCommand):
             del configreq[lparam]
         encoded = urllib.urlencode(configreq) + encodedLists
         return str(encoded)
+
+
+    def processJobIds(self, jobList):
+        # Build a dictionary from the jobList
+        jobStatusDict = {jobId: jobStatus for jobStatus, jobId in jobList['jobList']}
+
+        failedJobStatus = 'failed'
+        finishedJobStatus = 'finished'
+
+        possibleToResubmitJobIds = []
+        for jobStatus, jobId in jobList['jobList']:
+            if (self.options.force and jobStatus == finishedJobStatus) or jobStatus == failedJobStatus:
+                possibleToResubmitJobIds.append(jobId)
+
+        allowedJobStates = [failedJobStatus]
+        # TODO: checking for publication is redundant since validation already ensures this
+        if self.jobids: # and not self.options.publication:
+            msg = "Requesting resubmission of jobs %s in task %s" % (self.jobids, self.cachedinfo['RequestName'])
+            self.logger.debug(msg)
+
+            if self.options.force:
+                allowedJobStates += [finishedJobStatus]
+            # Go through the jobids and check if it's possible to resubmit them
+            for jobId in self.jobids:
+                if jobStatusDict[jobId] not in allowedJobStates:
+                    possibleAndWantedJobIds = list(set(possibleToResubmitJobIds) & set(self.jobids))
+                    notPossibleAndWantedJobIds = list(set(self.jobids) - set(possibleAndWantedJobIds))
+                    msg = "Not possible to resubmit the following jobs:\n%s\n" % notPossibleAndWantedJobIds
+                    msg += "Only jobs in status %s can be resubmitted. " % failedJobStatus
+                    msg += "Jobs in status %s can also be resubmitted, " % finishedJobStatus
+                    msg += "but only if the jobid is specified and the force option is set."
+                    raise ConfigurationException(msg)
+        else:
+            msg = "Requesting resubmission of failed jobs in task %s" % (self.cachedinfo['RequestName'])
+            self.logger.debug(msg)
+
+            if not possibleToResubmitJobIds:
+                msg = "Found no jobs to resubmit. Only jobs in status %s can be resubmitted. " % failedJobStatus
+                msg += "Jobs in status %s can also be resubmitted, but only if the jobids " % finishedJobStatus
+                msg += "are specified and the force option is set."
+                raise ConfigurationException(msg)
+
+            self.jobids = possibleToResubmitJobIds
+
+    def getQueryParams(self, crabDBInfo, jobList):
+        configreq = {'workflow': self.cachedinfo['RequestName'], 'subresource': 'resubmit2'}
+
+        for attr_name in ['jobids', 'sitewhitelist', 'siteblacklist']:
+            attr_value = getattr(self, attr_name)
+            ## For 'jobids', 'sitewhitelist' and 'siteblacklist', attr_value is either a list of strings or None.
+            if attr_value is not None:
+                configreq[attr_name] = attr_value
+        for attr_name in ['maxjobruntime', 'maxmemory', 'numcores', 'priority']:
+            attr_value = getattr(self.options, attr_name)
+            ## For 'maxjobruntime', 'maxmemory', 'numcores', and 'priority', attr_value is either an integer or None.
+            if attr_value is not None:
+                configreq[attr_name] = attr_value
+
+        configreq['force'] = 1 if self.options.force else 0
+        configreq['publicationresubmit'] = 1 if self.options.publication else 0
+        configreq['asodb'] = self.getColumn(crabDBInfo, "tm_asodb")
+        configreq['asourl'] = self.getColumn(crabDBInfo, "tm_asourl")
+        configreq['username'] = self.getColumn(crabDBInfo, "tm_username")
+        configreq['publicationenabled'] = self.getColumn(crabDBInfo, "tm_publication")
+        configreq['status'] = self.getColumn(crabDBInfo, "tm_task_status")
+        configreq['joblist'] = jobList
+
+        return configreq
 
     def getMutedStatusInfo(self):
         """
