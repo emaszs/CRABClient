@@ -1,13 +1,12 @@
 import re
 import urllib
-from datetime import datetime
 
 ## CRAB dependencies.
 import CRABClient.Emulator
 from CRABClient import __version__
 from CRABClient.Commands.SubCommand import SubCommand
 from CRABClient.ClientUtilities import validateJobids, checkStatusLoop,\
-    LOGLEVEL_MUTE
+    LOGLEVEL_MUTE, colors
 from CRABClient.ClientExceptions import ConfigurationException, RESTCommunicationException
 from CRABClient.UserUtilities import getConsoleLogLevel, setConsoleLogLevel
 
@@ -33,6 +32,13 @@ class resubmit2(SubCommand):
         server = serverFactory(self.serverurl, self.proxyfilename, self.proxyfilename, version = __version__)
 
         crabDBInfo, jobList = self.getMutedStatusInfo()
+
+        if not jobList:
+            msg  = "%sError%s:" % (colors.RED, colors.NORMAL)
+            msg += " Status information is unavailable, will not proceed with the resubmission."
+            msg += " Try again a few minutes later if the task has just been submitted."
+            self.logger.info(msg)
+            return None
 
         self.processJobIds(jobList)
 
@@ -160,7 +166,6 @@ class resubmit2(SubCommand):
         setConsoleLogLevel(LOGLEVEL_MUTE)
         crabDBInfo, shortResult = cmdobj.__call__()
         setConsoleLogLevel(loglevel)
-
         return crabDBInfo, shortResult
 
     def setOptions(self):
