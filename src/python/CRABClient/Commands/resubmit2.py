@@ -5,10 +5,9 @@ import urllib
 import CRABClient.Emulator
 from CRABClient import __version__
 from CRABClient.Commands.SubCommand import SubCommand
-from CRABClient.ClientUtilities import validateJobids, checkStatusLoop,\
-    LOGLEVEL_MUTE, colors
-from CRABClient.ClientExceptions import ConfigurationException, RESTCommunicationException
-from CRABClient.UserUtilities import getConsoleLogLevel, setConsoleLogLevel
+from CRABClient.ClientUtilities import validateJobids, checkStatusLoop, colors
+from CRABClient.ClientExceptions import ConfigurationException
+from CRABClient.UserUtilities import getMutedStatusInfo, getColumn
 
 class resubmit2(SubCommand):
     """
@@ -31,7 +30,7 @@ class resubmit2(SubCommand):
         serverFactory = CRABClient.Emulator.getEmulator('rest')
         server = serverFactory(self.serverurl, self.proxyfilename, self.proxyfilename, version = __version__)
 
-        crabDBInfo, jobList = self.getMutedStatusInfo()
+        crabDBInfo, jobList = getMutedStatusInfo(self.logger)
 
         if not jobList:
             msg  = "%sError%s:" % (colors.RED, colors.NORMAL)
@@ -40,21 +39,32 @@ class resubmit2(SubCommand):
             self.logger.info(msg)
             return None
 
+        publicationEnabled = getColumn(crabDBInfo, "tm_publication")
+        jobsPerStatus = jobList['jobsPerStatus']
+
+        #TODO: does this make sense?
+        if self.options.publication:
+            if publicationEnabled == "F":
+                msg = "Publication was disabled for this task. Therefore,"
+                msg += "there are no publications to resubmit."
+                self.logger.info(msg)
+                return None
+            else:
+                if "finished" not in jobsPerStatus:
+                    msg = "No files found to publish"
+                    self.logger.info(msg)
+                    return None
+
         self.processJobIds(jobList)
 
         configreq = self.getQueryParams(crabDBInfo, jobList)
-
         self.logger.info("Sending resubmit request to the server.")
         self.logger.debug("Submitting %s " % str(configreq))
         configreq_encoded = self._encodeRequest(configreq)
         self.logger.debug("Encoded resubmit request: %s" % (configreq_encoded))
 
-        dictresult, status, reason = server.post(self.uri, data = configreq_encoded)
+        dictresult, _, _ = server.post(self.uri, data = configreq_encoded)
         self.logger.debug("Result: %s" % (dictresult))
-        if status != 200:
-            msg = "Problem resubmitting the task to the server:\ninput:%s\noutput:%s\nreason:%s" \
-                  % (str(configreq_encoded), str(dictresult), str(reason))
-            raise RESTCommunicationException(msg)
         self.logger.info("Resubmit request sent to the server.")
         if dictresult['result'][0]['result'] != 'ok':
             msg = "Server responded with: '%s'" % (dictresult['result'][0]['result'])
@@ -102,11 +112,9 @@ class resubmit2(SubCommand):
                 possibleToResubmitJobIds.append(jobId)
 
         allowedJobStates = [failedJobStatus]
-        # TODO: checking for publication is redundant since validation already ensures this
-        if self.jobids: # and not self.options.publication:
+        if self.jobids:
             msg = "Requesting resubmission of jobs %s in task %s" % (self.jobids, self.cachedinfo['RequestName'])
             self.logger.debug(msg)
-
             if self.options.force:
                 allowedJobStates += [finishedJobStatus]
             # Go through the jobids and check if it's possible to resubmit them
@@ -123,13 +131,13 @@ class resubmit2(SubCommand):
             msg = "Requesting resubmission of failed jobs in task %s" % (self.cachedinfo['RequestName'])
             self.logger.debug(msg)
 
-            if not possibleToResubmitJobIds:
+            if not possibleToResubmitJobIds and not self.options.publication:
                 msg = "Found no jobs to resubmit. Only jobs in status %s can be resubmitted. " % failedJobStatus
                 msg += "Jobs in status %s can also be resubmitted, but only if the jobids " % finishedJobStatus
                 msg += "are specified and the force option is set."
                 raise ConfigurationException(msg)
 
-            self.jobids = possibleToResubmitJobIds
+            self.jobids = possibleToResubmitJobIds if possibleToResubmitJobIds else None
 
     def getQueryParams(self, crabDBInfo, jobList):
         configreq = {'workflow': self.cachedinfo['RequestName'], 'subresource': 'resubmit2'}
@@ -147,26 +155,12 @@ class resubmit2(SubCommand):
 
         configreq['force'] = 1 if self.options.force else 0
         configreq['publicationresubmit'] = 1 if self.options.publication else 0
-        configreq['asodb'] = self.getColumn(crabDBInfo, "tm_asodb")
-        configreq['asourl'] = self.getColumn(crabDBInfo, "tm_asourl")
-        configreq['username'] = self.getColumn(crabDBInfo, "tm_username")
-        configreq['publicationenabled'] = self.getColumn(crabDBInfo, "tm_publication")
-        configreq['status'] = self.getColumn(crabDBInfo, "tm_task_status")
-        configreq['joblist'] = jobList
+        configreq['asodb'] = getColumn(crabDBInfo, "tm_asodb")
+        configreq['asourl'] = getColumn(crabDBInfo, "tm_asourl")
+        configreq['username'] = getColumn(crabDBInfo, "tm_username")
+        configreq['status'] = getColumn(crabDBInfo, "tm_task_status")
 
         return configreq
-
-    def getMutedStatusInfo(self):
-        """
-        Mute the status console output before calling status and change it back to normal afterwards.
-        """
-        mod = __import__('CRABClient.Commands.status2', fromlist='status2')
-        cmdobj = getattr(mod, 'status2')(self.logger)
-        loglevel = getConsoleLogLevel()
-        setConsoleLogLevel(LOGLEVEL_MUTE)
-        crabDBInfo, shortResult = cmdobj.__call__()
-        setConsoleLogLevel(loglevel)
-        return crabDBInfo, shortResult
 
     def setOptions(self):
         """
@@ -340,11 +334,3 @@ class resubmit2(SubCommand):
             if self.options.priority < 1:
                 msg = "The requested priority (%d) must be greater than 0." % (self.options.priority)
                 raise ConfigurationException(msg)
-
-    def getColumn(self, dictresult, columnName):
-        columnIndex = dictresult['desc']['columns'].index(columnName)
-        value = dictresult['result'][columnIndex]
-        if value=='None':
-            return None
-        else:
-            return value
