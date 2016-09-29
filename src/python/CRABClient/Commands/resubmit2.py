@@ -55,7 +55,7 @@ class resubmit2(SubCommand):
                     self.logger.info(msg)
                     return None
 
-        self.processJobIds(jobList)
+        self.jobids = self.processJobIds(jobList)
 
         configreq = self.getQueryParams(crabDBInfo, jobList)
         self.logger.info("Sending resubmit request to the server.")
@@ -100,6 +100,20 @@ class resubmit2(SubCommand):
 
 
     def processJobIds(self, jobList):
+        """
+        If this is a publication resubmission, return None since jobIds are not taken
+        into account for publication resubmissions.
+
+        If the user provides a list of jobIds to be resubmitted, validate it and 
+        return the same list in case of success.
+
+        If no jobIds are provided, create a list of jobs that need resubmitting and
+        return it.
+        """
+
+        if self.options.publication:
+            return None
+
         # Build a dictionary from the jobList
         jobStatusDict = {jobId: jobStatus for jobStatus, jobId in jobList['jobList']}
 
@@ -127,19 +141,23 @@ class resubmit2(SubCommand):
                     msg += "Jobs in status %s can also be resubmitted, " % finishedJobStatus
                     msg += "but only if the jobid is specified and the force option is set."
                     raise ConfigurationException(msg)
+            return self.jobids
         else:
             msg = "Requesting resubmission of failed jobs in task %s" % (self.cachedinfo['RequestName'])
             self.logger.debug(msg)
 
-            if not possibleToResubmitJobIds and not self.options.publication:
+            if not possibleToResubmitJobIds:
                 msg = "Found no jobs to resubmit. Only jobs in status %s can be resubmitted. " % failedJobStatus
                 msg += "Jobs in status %s can also be resubmitted, but only if the jobids " % finishedJobStatus
                 msg += "are specified and the force option is set."
                 raise ConfigurationException(msg)
 
-            self.jobids = possibleToResubmitJobIds if possibleToResubmitJobIds else None
+            return possibleToResubmitJobIds
 
     def getQueryParams(self, crabDBInfo, jobList):
+        """
+        Create the parameter dictionary that's passed to the server.
+        """
         configreq = {'workflow': self.cachedinfo['RequestName'], 'subresource': 'resubmit2'}
 
         for attr_name in ['jobids', 'sitewhitelist', 'siteblacklist']:
