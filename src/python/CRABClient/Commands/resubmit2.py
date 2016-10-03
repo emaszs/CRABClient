@@ -5,9 +5,9 @@ import urllib
 import CRABClient.Emulator
 from CRABClient import __version__
 from CRABClient.Commands.SubCommand import SubCommand
-from CRABClient.ClientUtilities import validateJobids, checkStatusLoop, colors
 from CRABClient.ClientExceptions import ConfigurationException
 from CRABClient.UserUtilities import getMutedStatusInfo, getColumn
+from CRABClient.ClientUtilities import validateJobids, checkStatusLoop, colors
 
 class resubmit2(SubCommand):
     """
@@ -45,7 +45,7 @@ class resubmit2(SubCommand):
         #TODO: does this make sense?
         if self.options.publication:
             if publicationEnabled == "F":
-                msg = "Publication was disabled for this task. Therefore,"
+                msg = "Publication was disabled for this task. Therefore, "
                 msg += "there are no publications to resubmit."
                 self.logger.info(msg)
                 return None
@@ -172,10 +172,10 @@ class resubmit2(SubCommand):
                 configreq[attr_name] = attr_value
 
 #         configreq['force'] = 1 if self.options.force else 0
-        configreq['publicationresubmit'] = 1 if self.options.publication else 0
-        configreq['asodb'] = getColumn(crabDBInfo, "tm_asodb")
-        configreq['asourl'] = getColumn(crabDBInfo, "tm_asourl")
-        configreq['username'] = getColumn(crabDBInfo, "tm_username")
+        configreq['publication'] = 1 if self.options.publication else 0
+#         configreq['asodb'] = getColumn(crabDBInfo, "tm_asodb")
+#         configreq['asourl'] = getColumn(crabDBInfo, "tm_asourl")
+#         configreq['username'] = getColumn(crabDBInfo, "tm_username")
 #         configreq['status'] = getColumn(crabDBInfo, "tm_task_status")
 
         return configreq
