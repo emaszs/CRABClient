@@ -171,12 +171,7 @@ class resubmit2(SubCommand):
             if attr_value is not None:
                 configreq[attr_name] = attr_value
 
-#         configreq['force'] = 1 if self.options.force else 0
         configreq['publication'] = 1 if self.options.publication else 0
-#         configreq['asodb'] = getColumn(crabDBInfo, "tm_asodb")
-#         configreq['asourl'] = getColumn(crabDBInfo, "tm_asourl")
-#         configreq['username'] = getColumn(crabDBInfo, "tm_username")
-#         configreq['status'] = getColumn(crabDBInfo, "tm_task_status")
 
         return configreq
 
