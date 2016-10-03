@@ -42,7 +42,6 @@ class resubmit2(SubCommand):
         publicationEnabled = getColumn(crabDBInfo, "tm_publication")
         jobsPerStatus = jobList['jobsPerStatus']
 
-        #TODO: does this make sense?
         if self.options.publication:
             if publicationEnabled == "F":
                 msg = "Publication was disabled for this task. Therefore, "
