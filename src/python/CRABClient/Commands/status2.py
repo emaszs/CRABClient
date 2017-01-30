@@ -3,7 +3,6 @@ from __future__ import print_function
 
 import math
 import json
-import urllib
 from ast import literal_eval
 
 import CRABClient.Emulator
@@ -167,7 +166,7 @@ class status2(SubCommand):
         self.logger.info(msg)
 
         # Show server and dashboard URL for the task.
-        taskname = urllib.quote(self.cachedinfo['RequestName'])
+        taskname = self.cachedinfo['RequestName']
 
         ## CRAB Server UI URL for this task is always useful
         crabServerUIURL = "https://cmsweb.cern.ch/crabserver/ui/task/" + taskname
