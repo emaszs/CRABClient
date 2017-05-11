@@ -15,11 +15,14 @@ from dbs.apis.dbsClient import DbsApi
 ## WMCore dependencies
 from WMCore.Configuration import Configuration
 from WMCore.DataStructs.LumiList import LumiList
+from WMCore.Services.pycurl_manager import RequestHandler
 
 ## CRAB dependencies
 from CRABClient.ClientUtilities import DBSURLS, LOGLEVEL_MUTE, colors
 from CRABClient.ClientExceptions import ClientException, UsernameException, ProxyException
 
+class EnvironmentException(Exception):
+    pass
 
 def config():
     """
@@ -159,6 +162,48 @@ def getFileFromURL(url, filename = None, proxyfilename = None):
         raise exc
     return filename
 
+def getFileFromURLWithCurl(url, filename = None, proxyfilename = None, capath = None):
+    """
+    """
+
+    parsedUrl = urlparse(url)
+    if filename == None:
+        path = parsedurl.path
+        filename = os.path.basename(path)
+
+    
+    caDefault = "/etc/grid-security/certificates/"
+    if not capath:
+        if "X509_CERT_DIR" in os.environ:
+            caPath = os.environ["X509_CERT_DIR"]
+        elif os.path.isdir(caDefault):
+            caPath = caDefault
+        # leaving capath as none 
+        #else:
+        #    raise EnvironmentException("Cannot locate CA cert dir!")
+
+    reqHandler = RequestHandler()
+    header, data = reqHandler.request(url=url, params={}, ckey=proxyfilename,
+            cert=proxyfilename, capath=capath)
+    
+    if header.status != 200:
+        msg = "Problem retrieving information from %s\nreason: %s" \
+                % (url, header.reason)
+        raise RestCommunicationException(msg)
+
+    try:
+        with open(filename, 'a') as f:
+            f.seek(0)
+            f.truncate()
+            f.write(data)
+    except IOError as ex:
+        logger = logging.getLogger('CRAB3')
+        logger.exception(ex)
+        msg = "Error while writing output"
+        raise ClientException(msg)
+
+    return filename
+
 
 def getLumiListInValidFiles(dataset, dbsurl = 'phys03'):
     """
@@ -232,3 +277,8 @@ def getColumn(dictresult, columnName):
         return None
     else:
         return value
+
+if __name__ == '__main__':
+    url = 'https://cmsweb.cern.ch/scheddmon/0119/cms1428/170506_131227:sobhatta_crab_TT_TuneCUETP8M1_13TeV-powheg-pythia8/status_cache'
+    proxyfilename = os.environ['X509_USER_PROXY']
+    getFileFromURLWithCurl(url, "testFile.txt", proxyfilename)
