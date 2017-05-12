@@ -115,94 +115,45 @@ def getUsernameFromSiteDB():
         raise UsernameException(msg)
     return username
 
-
 def getFileFromURL(url, filename = None, proxyfilename = None):
-    """
-    Read the content of a URL and copy it into a file.
-
-    url: the link you would like to retrieve
-    filename: the local filename where the url is saved to. Defaults to the filename in the url
-    proxyfilename: the x509 proxy certificate to be used in case auth is required
-
-    Return the filename used to save the file or raises ClientException in case of errors (a status attribute is added if the error is an http one).
-    """
-    parsedurl = urlparse(url)
-    if filename == None:
-        path = parsedurl.path
-        filename = os.path.basename(path)
-    try:
-        opener = urllib.URLopener(key_file = proxyfilename, cert_file = proxyfilename)
-        socket = opener.open(url)
-        status = socket.getcode()
-        # Read the file by chunks instead of all at once, appending each chunk to the final result.
-        # This lowers the memory overhead, which can be a problem with big files.
-        with open (filename, 'a') as f:
-            f.seek(0)
-            f.truncate()
-            while True:
-                piece = socket.read(1024)
-                if not piece:
-                    break
-                f.write(piece)
-    except IOError as ioex:
-        msg = "Error while trying to retrieve file from %s: %s" % (url, ioex)
-        msg += "\nMake sure the URL is correct."
-        exc = ClientException(msg)
-        if ioex[0] == 'http error':
-            exc.status = ioex[1]
-        raise exc
-    except Exception as ex:
-        tblogger = logging.getLogger('CRAB3')
-        tblogger.exception(ex)
-        msg = "Unexpected error while trying to retrieve file from %s: %s" % (url, ex)
-        raise ClientException(msg)
-    if status != 200 and parsedurl.scheme in ['http', 'https']:
-        exc = ClientException("Unable to retieve the file from %s. HTTP status code %s. HTTP content: %s" % (url, status, socket.info()))
-        exc.status = status
-        raise exc
-    return filename
-
-def getFileFromURLWithCurl(url, filename = None, proxyfilename = None, capath = None):
-    """
-    """
-
     parsedUrl = urlparse(url)
     if filename == None:
-        path = parsedurl.path
+        path = parsedUrl.path
         filename = os.path.basename(path)
 
-    
-    caDefault = "/etc/grid-security/certificates/"
-    if not capath:
-        if "X509_CERT_DIR" in os.environ:
-            caPath = os.environ["X509_CERT_DIR"]
-        elif os.path.isdir(caDefault):
-            caPath = caDefault
-        # leaving capath as none 
-        #else:
-        #    raise EnvironmentException("Cannot locate CA cert dir!")
+    data = getDataFromURL(url, proxyfilename)
 
-    reqHandler = RequestHandler()
-    header, data = reqHandler.request(url=url, params={}, ckey=proxyfilename,
-            cert=proxyfilename, capath=capath)
-    
-    if header.status != 200:
-        msg = "Problem retrieving information from %s\nreason: %s" \
-                % (url, header.reason)
-        raise RestCommunicationException(msg)
-
-    try:
-        with open(filename, 'a') as f:
-            f.seek(0)
-            f.truncate()
-            f.write(data)
-    except IOError as ex:
-        logger = logging.getLogger('CRAB3')
-        logger.exception(ex)
-        msg = "Error while writing output"
-        raise ClientException(msg)
+    if data:
+        try:
+            with open(filename, 'a') as f:
+                f.seek(0)
+                f.truncate()
+                f.write(data)
+        except IOError as ex:
+            logger = logging.getLogger('CRAB3')
+            logger.exception(ex)
+            msg = "Error while writing %s. Got:\n%s" \
+                    % (filename, ex)
+            raise ClientException(msg)
 
     return filename
+
+
+def getDataFromURL(url, proxyfilename = None):
+    """
+    """
+
+    #CRABServer dependency
+    from RESTInteractions import HTTPRequests
+
+    reqHandler = RequestHandler()
+    try:
+        _, data = reqHandler.request(url=url, params={}, ckey=proxyfilename,
+                cert=proxyfilename, capath=HTTPRequests.getCACertPath())    
+    except Exception as ex:
+        raise ClientException(ex)
+
+    return data
 
 
 def getLumiListInValidFiles(dataset, dbsurl = 'phys03'):
@@ -268,6 +219,12 @@ def getMutedStatusInfo(logger):
     setConsoleLogLevel(LOGLEVEL_MUTE)
     statusDict = cmdobj.__call__()
     setConsoleLogLevel(loglevel)
+    
+    if statusDict['statusFailureMsg']:
+        # If something happens during status execution we still want to print it
+        logger.error("Error while getting status information. Got:\n%s " %
+                          statusDict['statusFailureMsg'])
+
     return statusDict
 
 def getColumn(dictresult, columnName):
@@ -279,6 +236,7 @@ def getColumn(dictresult, columnName):
         return value
 
 if __name__ == '__main__':
-    url = 'https://cmsweb.cern.ch/scheddmon/0119/cms1428/170506_131227:sobhatta_crab_TT_TuneCUETP8M1_13TeV-powheg-pythia8/status_cache'
+    #url = 'https://cmsweb.cern.ch/scheddmon/0119/cms1428/170506_131227:sobhatta_crab_TT_TuneCUETP8M1_13TeV-powheg-pythia8/status_cache'
+    url = 'https://cmsweb.cern.ch/scheddmon/059/cms1425/170512_082649:erupeika_crab_hotfix_server_test0/debug_files.tar.gz'
     proxyfilename = os.environ['X509_USER_PROXY']
-    getFileFromURLWithCurl(url, "testFile.txt", proxyfilename)
+    getFileFromURL(url, "testFile.txt", proxyfilename)
