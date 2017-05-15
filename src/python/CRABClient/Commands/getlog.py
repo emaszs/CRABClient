@@ -120,7 +120,7 @@ class getlog(getcommand):
                     # Ignore the exception if the HTTP status code is 404. Status 404 means file
                     # not found (see http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html). File
                     # not found error is expected, since we try all the job retries.
-                    if ex.args[0].status != 404:
+                    if hasattr(ex.args[0], 'status') and ex.args[0].status != 404:
                         self.logger.debug(str(ex))
                         failed.append(filename)
 

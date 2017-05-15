@@ -112,6 +112,7 @@ def getUsernameFromSiteDB():
         raise UsernameException(msg)
     return username
 
+
 def getFileFromURL(url, filename = None, proxyfilename = None):
     """
     Read the content of a URL and copy it into a file.

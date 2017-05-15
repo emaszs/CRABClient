@@ -29,8 +29,8 @@ class getcommand(SubCommand):
         if argv.get('subresource') in ['data2', 'logs2']:
             try:
                 self.processAndStoreJobIds()
-            except ClientException as ex:
-                raise ex
+            except ClientException:
+                raise
 
         ## Retrieve the transferLogs parameter from the task database.
         taskdbparam, configparam = '', ''

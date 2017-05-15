@@ -23,7 +23,6 @@ from CRABClient.ClientExceptions import ConfigurationException, \
 
 from ServerUtilities import FEEDBACKMAIL
 
-
 class report(SubCommand):
     """
     Important: the __call__ method is almost identical to the old report.
