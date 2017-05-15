@@ -354,7 +354,6 @@ class report(SubCommand):
             url = userWebDirURL + "/run_and_lumis.tar.gz"
             try:
                 data = getDataFromURL(url, self.proxyfilename)
-                # ???? note: fileobj is not closed when tarfile is closed ????
                 with tarfile.open(fileobj=StringIO(data)) as tarball:
                     for jobid in xrange(1, numJobs+1):
                         filename = "job_lumis_%d.json" % (jobid)

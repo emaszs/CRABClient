@@ -296,13 +296,11 @@ class CredentialInteractions(object):
         """
         myproxy = Proxy ( self.defaultDelegation )
         myproxy.userDN = myproxy.getSubjectFromCert(self.certLocation)
-        #myproxy.userDN = '/DC=ch/DC=cern/OU=Organic Units/OU=Users/CN=erupeika/CN=775659/CN=Emilis Antanas Rupeika'
 
         myproxytimeleft = 0
         self.logger.debug("Getting myproxy life time left for %s" % self.defaultDelegation["myProxySvr"])
         # return an integer that indicates the number of seconds to the expiration of the proxy in myproxy
         # Also catch the exception in case WMCore encounters a problem with the proxy itself (one such case was #4532)
-        #import pdb; pdb.set_trace()
         try:
             myproxytimeleft = myproxy.getMyProxyTimeLeft(serverRenewer=True, nokey=nokey)
         except Exception as ex:

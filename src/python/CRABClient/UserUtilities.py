@@ -3,7 +3,6 @@ This module contains the utility methods available for users.
 """
 
 import os
-import urllib
 import logging
 import traceback
 import subprocess
@@ -21,8 +20,6 @@ from WMCore.Services.pycurl_manager import RequestHandler
 from CRABClient.ClientUtilities import DBSURLS, LOGLEVEL_MUTE, colors
 from CRABClient.ClientExceptions import ClientException, UsernameException, ProxyException
 
-class EnvironmentException(Exception):
-    pass
 
 def config():
     """
@@ -116,6 +113,13 @@ def getUsernameFromSiteDB():
     return username
 
 def getFileFromURL(url, filename = None, proxyfilename = None):
+    """
+    Read the content of a URL and copy it into a file.
+
+    url: the link you would like to retrieve
+    filename: the local filename where the url is saved to. Defaults to the filename in the url
+    proxyfilename: the x509 proxy certificate to be used in case auth is required
+    """
     parsedUrl = urlparse(url)
     if filename == None:
         path = parsedUrl.path
@@ -141,16 +145,25 @@ def getFileFromURL(url, filename = None, proxyfilename = None):
 
 def getDataFromURL(url, proxyfilename = None):
     """
+    Read the content of a URL and return it as a string.
+    Type of content should not matter, it can be a json file or a tarball for example.
+
+    url: the link you would like to retrieve
+    proxyfilename: the x509 proxy certificate to be used in case auth is required
+
+    Returns binary data encoded as a string, which can be later processed
+    according to what kind of content it represents.
     """
 
+    from httplib import HTTPException
     #CRABServer dependency
     from RESTInteractions import HTTPRequests
 
     reqHandler = RequestHandler()
     try:
         _, data = reqHandler.request(url=url, params={}, ckey=proxyfilename,
-                cert=proxyfilename, capath=HTTPRequests.getCACertPath())    
-    except Exception as ex:
+                cert=proxyfilename, capath=HTTPRequests.getCACertPath())
+    except HTTPException as ex:
         raise ClientException(ex)
 
     return data
@@ -219,7 +232,7 @@ def getMutedStatusInfo(logger):
     setConsoleLogLevel(LOGLEVEL_MUTE)
     statusDict = cmdobj.__call__()
     setConsoleLogLevel(loglevel)
-    
+
     if statusDict['statusFailureMsg']:
         # If something happens during status execution we still want to print it
         logger.error("Error while getting status information. Got:\n%s " %
@@ -234,9 +247,3 @@ def getColumn(dictresult, columnName):
         return None
     else:
         return value
-
-if __name__ == '__main__':
-    #url = 'https://cmsweb.cern.ch/scheddmon/0119/cms1428/170506_131227:sobhatta_crab_TT_TuneCUETP8M1_13TeV-powheg-pythia8/status_cache'
-    url = 'https://cmsweb.cern.ch/scheddmon/059/cms1425/170512_082649:erupeika_crab_hotfix_server_test0/debug_files.tar.gz'
-    proxyfilename = os.environ['X509_USER_PROXY']
-    getFileFromURL(url, "testFile.txt", proxyfilename)
