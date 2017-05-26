@@ -45,6 +45,8 @@ class status(SubCommand):
         crabDBInfo, _, _ =  server.get(uri, data = {'subresource': 'search', 'workflow': taskname})
         self.logger.debug("Got information from server oracle database: %s", crabDBInfo)
 
+        combinedStatus = getColumn(crabDBInfo, 'tm_task_status')
+
         user = getColumn(crabDBInfo, 'tm_username')
         webdir = getColumn(crabDBInfo, 'tm_user_webdir')
         rootDagId = getColumn(crabDBInfo, 'clusterid') #that's the condor id from the TW
@@ -76,12 +78,20 @@ class status(SubCommand):
                 failureMsg += " Please send an e-mail to %s." % (FEEDBACKMAIL)
                 failureMsg += "\nHold reason: %s" % (res['DagmanHoldReason'])
                 self.logger.info(failureMsg)
+                
+                combinedStatus = "FAILED"
+
             else:
                 # if the dag is submitted and the webdir is not there we have to wait that AdjustSites run
                 # and upload the webdir location to the server
                 self.logger.info("Waiting for the Grid scheduler to bootstrap your task")
                 failureMsg = "Schedd has not reported back the webdir (yet)"
                 self.logger.debug(failureMsg)
+                
+                # I think it's fine to show DB status here and not unknown? We don't really know
+                # the status but the task -should- eventually start so it'll show SUBMITTED instead
+                combinedStatus = "UNKNOWN"
+                
             return self.makeStatusReturnDict(crabDBInfo, statusFailureMsg=failureMsg)
 
         self.logger.debug("Webdir is located at %s", webdir)
@@ -96,7 +106,7 @@ class status(SubCommand):
         self.logger.debug("Proxied webdir is located at %s", proxiedWebDir)
 
         # Download status_cache file
-        url = proxiedWebDir + "/status_cache"
+        url = proxiedWebDir.encode('ascii') + "/status_cache"
         self.logger.debug("Retrieving 'status_cache' file from %s", url)
 
         statusCacheInfo = None
@@ -108,6 +118,10 @@ class status(SubCommand):
             failureMsg += " Got:\n%s" % ce
             self.logger.error(failureMsg)
             logging.getLogger("CRAB3").exception(ce)
+            
+            # Again, maybe this should stay as DB status (so I'm expecting it to be "SUBMITTED")
+            combinedStatus = "UNKNOWN"
+            
             return self.makeStatusReturnDict(crabDBInfo, statusFailureMsg=failureMsg)
         else:
             # We skip first two lines of the file because they contain the checkpoint locations 
@@ -116,7 +130,8 @@ class status(SubCommand):
             statusCacheInfo = literal_eval(statusCacheData.split('\n')[2])
             self.logger.debug("Got information from status cache file: %s", statusCacheInfo)
 
-        self.printDAGStatus(crabDBInfo, statusCacheInfo)
+        # If we have the status on the schedd, show it instead as combined status.
+        combinedStatus = self.printDAGStatus(crabDBInfo, statusCacheInfo)
         shortResult = self.printShort(statusCacheInfo)
         pubStatus = self.printPublication(publicationEnabled, shortResult['jobsPerStatus'], asourl, asodb,
                               taskname, user, crabDBInfo)
@@ -137,6 +152,7 @@ class status(SubCommand):
 
         statusDict = self.makeStatusReturnDict(crabDBInfo, '', shortResult, statusCacheInfo, pubStatus,
                                                proxiedWebDir)
+        
         return statusDict
 
     def makeStatusReturnDict(self, crabDBInfo, statusFailureMsg = '',
@@ -216,16 +232,16 @@ class status(SubCommand):
     def printDAGStatus(self, crabDBInfo, statusCacheInfo):
         # Get dag status from the node_state/job_log summary
         dagman_codes = {1:'SUBMITTED', 2:'SUBMITTED', 3:'SUBMITTED', 4:'SUBMITTED', 5:'COMPLETED', 6:'FAILED'}
-        dag_status = dagman_codes.get(statusCacheInfo['DagStatus']['DagStatus'])
+        dagStatus = dagman_codes.get(statusCacheInfo['DagStatus']['DagStatus'])
         #Unfortunately DAG code for killed task is 6, just as like for finished DAGs with failed jobs
         #Relabeling the status from 'FAILED' to 'FAILED (KILLED)'     if a successful kill command was issued
         dbstatus = getColumn(crabDBInfo, 'tm_task_status')
-        if dag_status == 'FAILED' and dbstatus == 'KILLED':
-            dag_status = 'FAILED (KILLED)'
+        if dagStatus == 'FAILED' and dbstatus == 'KILLED':
+            dagStatus = 'FAILED (KILLED)'
 
-        msg = "Status on the scheduler:\t" + dag_status
+        msg = "Status on the scheduler:\t" + dagStatus
         self.logger.info(msg)
-        return msg
+        return dagStatus
 
     def printTaskInfo(self, crabDBInfo, username):
         """ Print general information like project directory, task name, scheduler, task status (in the database),

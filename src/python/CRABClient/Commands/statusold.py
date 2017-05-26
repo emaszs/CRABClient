@@ -100,6 +100,7 @@ class statusold(SubCommand):
             if self.options.json:
                 self.logger.info(json.dumps(dictresult['jobs']))
 
+        import pdb; pdb.set_trace()
         return dictresult
 
 
