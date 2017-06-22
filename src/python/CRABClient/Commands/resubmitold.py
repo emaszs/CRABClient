@@ -5,9 +5,9 @@ import urllib
 import CRABClient.Emulator
 from CRABClient import __version__
 from CRABClient.Commands.SubCommand import SubCommand
-from CRABClient.ClientUtilities import validateJobids, checkStatusLoop
+from CRABClient.ClientUtilities import validateJobids
 from CRABClient.ClientExceptions import ConfigurationException, RESTCommunicationException
-
+from CRABClient.UserUtilities import checkStatusLoop
 
 class resubmitold(SubCommand):
     """

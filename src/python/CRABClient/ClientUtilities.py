@@ -21,7 +21,7 @@ from optparse import OptionValueError
 
 ## CRAB dependencies
 import CRABClient.Emulator
-from CRABClient.ClientExceptions import ClientException, TaskNotFoundException, CachefileNotFoundException, ConfigurationException, ConfigException, UsernameException, ProxyException, RESTCommunicationException
+from CRABClient.ClientExceptions import ClientException, TaskNotFoundException, CachefileNotFoundException, ConfigurationException, ConfigException, UsernameException, ProxyException
 
 
 DBSURLS = {'reader': {'global': 'https://cmsweb.cern.ch/dbs/prod/global/DBSReader',
@@ -258,6 +258,7 @@ def getPlugins(namespace, plugins, skip):
     _getPlugins_
 
     returns a dictionary with key='class name' and value='hook to the module'
+    
     as input needs the package name that contains the different modules
 
     TODO: If we use WMCore more, replace with the WMFactory.
@@ -675,86 +676,5 @@ def cmd_exist(cmd):
     except OSError:
         return False
 
-def checkStatusLoop(logger, server, uri, uniquerequestname, targetstatus, cmdname):
-    logger.info("Waiting for task to be processed")
 
-    maxwaittime = 900 #in second, changed to 15 minute max wait time, the original 1 hour is too long
-    starttime = currenttime = time.time()
-    endtime = currenttime + maxwaittime
-
-    startimestring = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(starttime))
-    endtimestring  = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(endtime))
-
-    logger.debug("Start time:%s" % (startimestring))
-    logger.debug("Max wait time: %s s until : %s" % (maxwaittime,endtimestring))
-
-    #logger.debug('Looking up detailed status of task %s' % uniquerequestname)
-
-    continuecheck = True
-    tmpresult = None
-    logger.info("Checking task status")
-
-    while continuecheck:
-        currenttime = time.time()
-        querytimestring = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(currenttime))
-
-        logger.debug("Looking up detailed status of task %s" % (uniquerequestname))
-
-        dictresult, status, reason = server.get(uri, data = {'workflow' : uniquerequestname})
-        dictresult = dictresult['result'][0]
-
-        if status != 200:
-            msg  = "Error when trying to check the task status."
-            msg += " Please check the task status later using 'crab status'."
-            logger.error(msg)
-            msg = "Problem retrieving status:\ninput:%s\noutput:%s\nreason:%s" % (str(uniquerequestname), str(dictresult), str(reason))
-            raise RESTCommunicationException(msg)
-
-        logger.debug("Query Time: %s Task status: %s" % (querytimestring, dictresult['status']))
-
-        logger.info("Task status: %s" % (dictresult['status']))
-        if dictresult['status'] != tmpresult:
-            tmpresult = dictresult['status']
-            if dictresult['status'] in ['SUBMITFAILED', 'RESUBMITFAILED']:
-                continuecheck = False
-                msg  = "%sError%s:" % (colors.RED, colors.NORMAL)
-                msg += " The %s of your task has failed." % ("resubmission" if cmdname == "resubmit" else "submission")
-                logger.error(msg)
-                if dictresult['taskFailureMsg']:
-                    msg  = "%sFailure message%s:" % (colors.RED, colors.NORMAL)
-                    msg += "\t%s" % (dictresult['taskFailureMsg'].replace('\n', '\n\t\t\t'))
-                    logger.error(msg)
-            elif dictresult['status'] in ['SUBMITTED', 'UPLOADED', 'UNKNOWN']: #until the node_state file is available status is unknown
-                continuecheck = False
-            else:
-                logger.info("Please wait...")
-                time.sleep(30)
-        elif dictresult['status'] in ['NEW', 'HOLDING', 'QUEUED', 'RESUBMIT']:
-            logger.info("Please wait...")
-            time.sleep(30)
-        else:
-            continuecheck = False
-            logger.info("Please check crab.log")
-            logger.debug("Task status other than SUBMITFAILED, RESUBMITFAILED, SUBMITTED, UPLOADED, NEW, HOLDING, QUEUED, RESUBMIT")
-        ## Break the loop if we were waiting already too much.
-        if currenttime > endtime:
-            continuecheck = False
-            msg  = "Maximum query time exceeded."
-            msg += " Please check the status of the %s later using 'crab status'." % ("resubmission" if cmdname == "resubmit" else "submission")
-            logger.info(msg)
-            waittime = currenttime - starttime
-            logger.debug("Wait time: %s" % (waittime))
-
-    if targetstatus == 'SUBMITTED':
-        if tmpresult == 'SUBMITTED':
-            msg  = "%sSuccess%s:" % (colors.GREEN, colors.NORMAL)
-            msg += " Your task has been processed and your jobs have been %s successfully." % ("resubmitted" if cmdname == "resubmit" else "submitted")
-            logger.info(msg)
-        elif currenttime < endtime and tmpresult not in ['SUBMITFAILED', 'RESUBMITFAILED']:
-            msg  = "The CRAB3 server finished processing your task."
-            msg += " Use 'crab status' to see if your jobs have been %s successfully." % ("resubmitted" if cmdname == "resubmit" else "submitted")
-            logger.info(msg)
-
-    print('\a') #Generate audio bell
-    logger.debug("Ended %s process." % ("resubmission" if cmdname == "resubmit" else "submission"))
 

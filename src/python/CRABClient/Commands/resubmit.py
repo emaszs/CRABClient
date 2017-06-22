@@ -9,7 +9,8 @@ from CRABClient import __version__
 from CRABClient.Commands.SubCommand import SubCommand
 from CRABClient.ClientExceptions import ConfigurationException
 from CRABClient.UserUtilities import getMutedStatusInfo
-from CRABClient.ClientUtilities import validateJobids, checkStatusLoop, colors
+from CRABClient.ClientUtilities import validateJobids, colors
+from CRABClient.UserUtilities import checkStatusLoop
 
 class resubmit(SubCommand):
     """

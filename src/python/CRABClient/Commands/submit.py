@@ -19,7 +19,8 @@ from CRABClient.ClientUtilities import DBSURLS
 from CRABClient.Commands.SubCommand import SubCommand
 from CRABClient.ClientMapping import parametersMapping, getParamDefaultValue
 from CRABClient.ClientExceptions import ClientException, RESTCommunicationException
-from CRABClient.ClientUtilities import getJobTypes, createCache, addPlugin, server_info, colors, getUrl, setSubmitParserOptions, validateSubmitOptions, checkStatusLoop
+from CRABClient.ClientUtilities import getJobTypes, createCache, addPlugin, server_info, colors, getUrl, setSubmitParserOptions, validateSubmitOptions
+from CRABClient.UserUtilities import checkStatusLoop
 
 
 class submit(SubCommand):
