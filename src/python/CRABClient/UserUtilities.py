@@ -222,7 +222,7 @@ def setConsoleLogLevel(lvl):
         for h in logging.getLogger('CRAB3.all').handlers:
             h.setLevel(lvl)
 
-def getMutedStatusInfo(logger):
+def getMutedStatusInfo(logger, printErrors = True):
     """
     Mute the status console output before calling status and change it back to normal afterwards.
     """
@@ -233,7 +233,7 @@ def getMutedStatusInfo(logger):
     statusDict = cmdobj.__call__()
     setConsoleLogLevel(loglevel)
 
-    if statusDict['statusFailureMsg']:
+    if printErrors and statusDict['statusFailureMsg']:
         # If something happens during status execution we still want to print it
         logger.error("Error while getting status information. Got:\n%s " %
                           statusDict['statusFailureMsg'])
@@ -272,8 +272,7 @@ def checkStatusLoop(logger, server, uri, uniquerequestname, targetstatus, cmdnam
         querytimestring = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(currenttime))
 
         logger.debug("Looking up detailed status of task %s" % (uniquerequestname))
-
-        dictresult = getMutedStatusInfo(logger)
+        dictresult = getMutedStatusInfo(logger, printErrors=False)
 
 #         dictresult, status, reason = server.get(uri, data = {'workflow' : uniquerequestname})
 #         dictresult = dictresult['result'][0]
@@ -284,13 +283,12 @@ def checkStatusLoop(logger, server, uri, uniquerequestname, targetstatus, cmdnam
 #             logger.error(msg)
 #             msg = "Problem retrieving status:\ninput:%s\noutput:%s\nreason:%s" % (str(uniquerequestname), str(dictresult), str(reason))
 #             raise RESTCommunicationException(msg)
-        import pdb; pdb.set_trace()
-        logger.debug("Query Time: %s Task status: %s" % (querytimestring, dictresult['status']))
+        logger.debug("Query Time: %s Task status: %s" % (querytimestring, dictresult['dbStatus']))
 
-        logger.info("Task status: %s" % (dictresult['status']))
-        if dictresult['status'] != tmpresult:
-            tmpresult = dictresult['status']
-            if dictresult['status'] in ['SUBMITFAILED', 'RESUBMITFAILED']:
+        logger.info("Task status: %s" % (dictresult['dbStatus']))
+        if dictresult['dbStatus'] != tmpresult:
+            tmpresult = dictresult['dbStatus']
+            if dictresult['dbStatus'] in ['SUBMITFAILED', 'RESUBMITFAILED']:
                 continuecheck = False
                 msg  = "%sError%s:" % (colors.RED, colors.NORMAL)
                 msg += " The %s of your task has failed." % ("resubmission" if cmdname == "resubmit" else "submission")
@@ -299,12 +297,12 @@ def checkStatusLoop(logger, server, uri, uniquerequestname, targetstatus, cmdnam
                     msg  = "%sFailure message%s:" % (colors.RED, colors.NORMAL)
                     msg += "\t%s" % (dictresult['taskFailureMsg'].replace('\n', '\n\t\t\t'))
                     logger.error(msg)
-            elif dictresult['status'] in ['SUBMITTED', 'UPLOADED', 'UNKNOWN']: #until the node_state file is available status is unknown
+            elif dictresult['dbStatus'] in ['SUBMITTED', 'UPLOADED', 'UNKNOWN']: #until the node_state file is available status is unknown
                 continuecheck = False
             else:
                 logger.info("Please wait...")
                 time.sleep(30)
-        elif dictresult['status'] in ['NEW', 'HOLDING', 'QUEUED', 'RESUBMIT']:
+        elif dictresult['dbStatus'] in ['NEW', 'HOLDING', 'QUEUED', 'RESUBMIT']:
             logger.info("Please wait...")
             time.sleep(30)
         else:
